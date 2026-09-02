@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"Lint no configurado todavía\"",
     "test": "echo \"No hay pruebas configuradas todavía\""
   },
   "keywords": [],
