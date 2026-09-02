@@ -1,9 +1,10 @@
 {
-  "name": "proyecto",
+  "name": "gestor-documentos-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Backend para Gestor Inteligente de Documentos",
+  "main": "dist/index.js",
   "scripts": {
+    "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"Lint no configurado todavía\"",
@@ -13,15 +14,20 @@
   "type": "commonjs",
   "dependencies": {
     "cors": "^2.8.6",
+    "dotenv": "^16.4.5",
     "express": "^5.2.1",
-    "multer": "^2.3.0"
+    "mammoth": "^1.9.0",
+    "multer": "^2.3.0",
+    "pdf-parse": "^1.1.1",
+    "sharp": "^0.33.5",
+    "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.4.0",
-    "ts-node": "^10.9.2",
+    "@types/pdf-parse": "^1.1.4",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   }

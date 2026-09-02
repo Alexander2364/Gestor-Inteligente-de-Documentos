@@ -1,41 +1,43 @@
+// src/index.ts
+import 'dotenv/config'; // Carga .env al primer require/import
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import multer from 'multer';
+import { validateEnv } from './utils/env';
+import uploadRouter from './routes/upload';
+
+validateEnv(); // Falla rápido si faltan variables
 
 const app = express();
-app.use(cors({ origin: 'http://localhost:5173' }));
+
+// CORS: permite tu frontend (Vite dev server por defecto)
+const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+app.use(cors({ origin: frontendUrl }));
+
 app.use(express.json());
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10 MB
-});
-
+// Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.post('/upload', upload.single('file'), (req: Request, res: Response) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No se envió ningún archivo' });
-  }
-  const response = {
-    fileName: req.file.originalname,
-    categoria: 'factura',
-    confianza: 0.92,
-    datosExtraidos: {
-      proveedor: 'Ejemplo S.A.',
-      fecha: '2026-08-28',
-      total: 1250.00,
-      moneda: 'MXN'
-    },
-    resumen: 'Factura de servicios profesionales por $1,250.00 MXN',
-    derivacion: 'contabilidad'
-  };
-  return res.json(response);
+// Rutas
+app.use('/upload', uploadRouter);
+
+// 404
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-const PORT = 3000;
+// Error handler global
+app.use((err: Error, _req: Request, res: Response, _next: Function) => {
+  console.error('💥 Unhandled error:', err);
+  res.status(500).json({ error: 'Error interno del servidor' });
+});
+
+const PORT = Number(process.env.PORT) ?? 3000;
+
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`   Frontend permitido: ${frontendUrl}`);
+  console.log(`   Health: http://localhost:${PORT}/health`);
 });
