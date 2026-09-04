@@ -8,6 +8,9 @@ import sharp from 'sharp';
 export type SupportedMimeType =
   | 'application/pdf'
   | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  | 'application/wps-office.docx'
+  | 'application/vnd.ms-word.document.macroEnabled.12'
+  | 'application/vnd.openxmlformats-officedocument.wordprocessingml.template'
   | 'image/png'
   | 'image/jpeg'
   | 'image/jpg'
@@ -19,10 +22,23 @@ export interface ExtractResult {
   mimeType: string;  // Mime-type original del archivo
   pages?: number;    // Solo para PDFs (opcional)
 }
-
 //3. Constantes mime-types
 const PDF_MIME = 'application/pdf';
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+const WPS_DOCX_MIME = 'application/wps-office.docx';
+const DOCX_MIMES = [DOCX_MIME, WPS_DOCX_MIME];
+
+// MIME types conocidos para .docx de diferentes suites ofimáticas
+const DOCX_MIME_TYPES = new Set([
+  DOCX_MIME,                                           // Microsoft Office (estándar)
+  'application/wps-office.docx',                       // WPS Office
+  'application/vnd.ms-word.document.macroEnabled.12',  // .docm (Word con macros)
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.template', // .dotx
+]);
+
+
+
 const IMAGE_MIMES: SupportedMimeType[] = ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp'];
 
 //4. Singleton OCR Worker
@@ -36,18 +52,36 @@ async function getOcrWorker() {
 }
 
 //5. Función principal extractText
-export async function extractText(buffer: Buffer, mimeType: string): Promise<ExtractResult> {
+export async function extractText(buffer: Buffer, mimeType: string, originalName?: string): Promise<ExtractResult> {
+  // 1. Si el mime-type es genérico, intentar detectar por extensión
+  if (mimeType === 'application/octet-stream' && originalName) {
+    const ext = originalName.toLowerCase().split('.').pop();
+    if (ext === 'docx' || ext === 'docm' || ext === 'dotx') {
+      mimeType = DOCX_MIME;
+    } else if (['png', 'jpg', 'jpeg', 'tiff', 'bmp'].includes(ext || '')) {
+      mimeType = `image/${ext === 'jpg' ? 'jpeg' : ext}` as SupportedMimeType;
+    }
+  }
+
+  // 2. Normalizar mime-types conocidos de .docx al estándar
+  if (DOCX_MIME_TYPES.has(mimeType)) {
+    mimeType = DOCX_MIME;
+  }
+
+  // 3. Validar que sea un tipo soportado
   if (!isSupportedMimeType(mimeType)) {
     throw new Error(`Tipo de archivo no soportado: ${mimeType}`);
   }
 
+  // 4. Procesar según tipo
   switch (mimeType) {
     case PDF_MIME:
-      return extractFromPdf(buffer);
+    return extractFromPdf(buffer);
     case DOCX_MIME:
-      return extractFromDocx(buffer);
+    case WPS_DOCX_MIME:
+    return extractFromDocx(buffer);
     default:
-      return extractFromImage(buffer, mimeType as SupportedMimeType);
+    return extractFromImage(buffer, mimeType as SupportedMimeType);
   }
 }
 
@@ -61,7 +95,7 @@ async function extractFromPdf(buffer: Buffer): Promise<ExtractResult> {
   };
 }
 
-//7.extractFromDocx
+//7. extractFromDocx
 async function extractFromDocx(buffer: Buffer): Promise<ExtractResult> {
     const {value: text} = await mammoth.extractRawText({buffer});
     return {
@@ -70,13 +104,14 @@ async function extractFromDocx(buffer: Buffer): Promise<ExtractResult> {
     };
 }
 
+
 //8. extractFromImage
 async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Promise<ExtractResult> {
     const processedBuffer = await sharp(buffer)
-        .grayscale()    //1 canal (gris) en vez de 3 (RGB)
-        .normalize()    //Estira histograma: negro puro -> blanco puro
-        .sharpen()      //Filtro "unsharp mask": realiza bordes
-        .toBuffer();    //Devuelve Buffer procesado
+        .grayscale()
+        .normalize()
+        .sharpen()
+        .toBuffer();
 
     const worker = await getOcrWorker();
     const {data: {text}} = await worker.recognize(processedBuffer);
@@ -94,7 +129,9 @@ export async function closeOcrWorker(): Promise<void> {
     }
 }
 
-//10.TypeGuard isSupportedMimeType
 export function isSupportedMimeType(mimeType: string): mimeType is SupportedMimeType {
-    return [PDF_MIME, DOCX_MIME, ...IMAGE_MIMES].includes(mimeType as SupportedMimeType);
+  const baseTypes = [PDF_MIME, DOCX_MIME, ...IMAGE_MIMES];
+  return baseTypes.includes(mimeType as SupportedMimeType) || DOCX_MIME_TYPES.has(mimeType);
 }
+
+export { DOCX_MIME_TYPES };

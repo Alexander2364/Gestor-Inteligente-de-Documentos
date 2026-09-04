@@ -4,3 +4,7 @@ dist
 *.log
 .DS_Store
 coverage
+
+# Graphify
+graphify-out/
+.graphify_*
