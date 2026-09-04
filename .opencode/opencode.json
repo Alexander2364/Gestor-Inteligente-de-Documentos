@@ -1,0 +1,6 @@
+{
+  "plugin": [
+    ".opencode/plugins/graphify.js",
+    ".opencode/plugins/graphify-slash.js"
+  ]
+}

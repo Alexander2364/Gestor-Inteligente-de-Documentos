@@ -1,23 +1,59 @@
+// src/services/ia.ts
 import { buildClassifierPrompt } from '../prompts/classifier';
+import {getAreaByDocumentType}   from '../domain/sunat/areas'
 
-// 1. Tipos
+// 1. Tipos - 15 tipos documento
+export type SunatDocumentType = 
+  | 'DECLARACION_JURADA_MENSUAL'
+  | 'DECLARACION_JURADA_ANUAL'
+  | 'RESOLUCION_FRACCIONAMIENTO'
+  | 'RESOLUCION_APLAZAMIENTO'
+  | 'ORDEN_PAGO_OP'
+  | 'SOLICITUD_INSCRIPCION_RUC'
+  | 'ACTUALIZACION_RUC'
+  | 'RESOLUCION_DETERMINACION_RD'
+  | 'RESOLUCION_MULTA_RM'
+  | 'REQUERIMIENTO_FISCALIZACION'
+  | 'AUDITORIA_LIBROS'
+  | 'CARTA_PRESENTACION'
+  | 'NOTIFICACION_ELECTRONICA'
+  | 'ACTUALIZACION_RUC';
+
+// 2. Resultado clasificación
 export interface ClassificationResult {
-  area: 'Finanzas' | 'RRHH';
+  tipoDocumento: SunatDocumentType;
+  area: string;
   confianza: number; // 0.0 - 1.0
 }
 
-// 2. Config desde variables de entorno (con defaults)
+// 3. Tipos válidos para validación
+const VALID_TYPES: SunatDocumentType[] = [
+  'DECLARACION_JURADA_MENSUAL',
+  'DECLARACION_JURADA_ANUAL',
+  'RESOLUCION_FRACCIONAMIENTO',
+  'RESOLUCION_APLAZAMIENTO',
+  'ORDEN_PAGO_OP',
+  'SOLICITUD_INSCRIPCION_RUC',
+  'ACTUALIZACION_RUC',
+  'RESOLUCION_DETERMINACION_RD',
+  'RESOLUCION_MULTA_RM',
+  'REQUERIMIENTO_FISCALIZACION',
+  'AUDITORIA_LIBROS',
+  'CARTA_PRESENTACION',
+  'NOTIFICACION_ELECTRONICA',
+  'ACTUALIZACION_RUC',
+];
+
+// 4. Config desde variables de entorno
 const OLLAMA_HOST = process.env.OLLAMA_HOST ?? 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'phi3';
-const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 60000); // 60 segundos
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 60000);
 
-// 3. Función principal
-export async function classifyWithOllama(text: string): Promise<ClassificationResult> {
+// 5. Función principal
+export async function classifyWithOllama(text: string) {
   const prompt = buildClassifierPrompt(text);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
-
-  
 
   try {
     const response = await fetch(`${OLLAMA_HOST}/api/generate`, {
@@ -27,8 +63,8 @@ export async function classifyWithOllama(text: string): Promise<ClassificationRe
         model: OLLAMA_MODEL,
         prompt,
         stream: false,
-        format: 'json', // fuerza salida JSON válido
-        options: { temperature: 0.1 } // determinista
+        format: 'json',
+        options: { temperature: 0.1 }
       }),
       signal: controller.signal
     });
@@ -41,15 +77,14 @@ export async function classifyWithOllama(text: string): Promise<ClassificationRe
     }
 
     const data = await response.json();
-    // data.response viene como string JSON: '{"area":"Finanzas","confianza":0.92}'
     const parsed = JSON.parse(data.response);
 
-    // 4. Validación de la respuesta
-    if (!parsed.area || !['Finanzas', 'RRHH'].includes(parsed.area)) {
-      throw new Error(`Área inválida devuelta por la IA: ${parsed.area}`);
+    // Validación estricta
+    if (!parsed.tipoDocumento || !VALID_TYPES.includes(parsed.tipoDocumento as SunatDocumentType)) {
+      throw new Error(`Tipo documento inválido devuelto por la IA: ${parsed.tipoDocumento}`);
     }
 
-    // Confianza opcional: default 0.5 si no viene o es inválida
+    // Confianza opcional con default 0.5
     let confianza = 0.5;
     if (typeof parsed.confianza === 'number' && parsed.confianza >= 0 && parsed.confianza <= 1) {
       confianza = parsed.confianza;
@@ -60,8 +95,12 @@ export async function classifyWithOllama(text: string): Promise<ClassificationRe
       }
     }
 
+    // Determinar área usando la función de areas.ts
+    const area = getAreaByDocumentType(parsed.tipoDocumento);
+
     return {
-      area: parsed.area,
+      tipoDocumento: parsed.tipoDocumento as SunatDocumentType,
+      area,
       confianza
     };
   } catch (err) {
