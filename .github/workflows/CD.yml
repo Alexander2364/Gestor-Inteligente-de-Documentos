@@ -1,4 +1,6 @@
-on:
+name: "Deploy backend to Azure"
+
+"on":
   push:
     branches: [main]
   workflow_dispatch:
@@ -11,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       
-name: Configure SSH
+name: "Configure SSH"
       env:
         AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
         AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST }}
@@ -23,7 +25,7 @@ name: Configure SSH
         ssh-keyscan -H "$AZURE_VM_HOST" >> "$HOME/.ssh/known_hosts"
 
       
-name: Pull, build and restart backend
+name: "Pull, build and restart backend"
       env:
         AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST }}
         AZURE_VM_USER: ${{ secrets.AZURE_VM_USER }}
