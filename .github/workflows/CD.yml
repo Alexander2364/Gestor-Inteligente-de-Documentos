@@ -1,0 +1,51 @@
+name: "Deploy backend to Azure"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Configure SSH"
+        env:
+          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
+          AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+        run: |
+          set -eu
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$AZURE_SSH_KEY" > "$HOME/.ssh/azure_deploy_key"
+          chmod 600 "$HOME/.ssh/azure_deploy_key"
+          ssh-keyscan -H "$AZURE_VM_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: "Pull, build and restart backend"
+        env:
+          AZURE_VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+          AZURE_VM_USER: ${{ secrets.AZURE_VM_USER }}
+        run: |
+          set -eu
+          ssh -i "$HOME/.ssh/azure_deploy_key" "$AZURE_VM_USER@$AZURE_VM_HOST" '
+            set -eu
+            cd "$HOME/Gestor-Inteligente-de-Documentos"
+            git fetch origin main
+            git reset --hard origin/main
+            npm ci
+            npm run build
+
+            if pm2 describe gestor-documentos-backend >/dev/null 2>&1; then
+              pm2 restart gestor-documentos-backend --update-env
+            else
+              pm2 start dist/index.js \
+                --name gestor-documentos-backend \
+                --cwd "$HOME/Gestor-Inteligente-de-Documentos"
+            fi
+
+            pm2 save
+            curl --fail --silent http://127.0.0.1:3000/health
+          '
