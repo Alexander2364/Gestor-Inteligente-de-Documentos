@@ -67,7 +67,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
 
     // 3. Clasificar con IA (Ollama)
     console.log('[Upload] Classifying with IA...');
-    const { tipoDocumento, area, confianza } = await classifyWithOllama(text);
+    const { tipoDocumento, area, confianza, campos, informeEjecutivo, resumenEjecutivo } = await classifyWithOllama(text);
     console.log('[Upload] Classified:', tipoDocumento, area, confianza);
 
     // 4. Responder al cliente INMEDIATAMENTE
@@ -76,6 +76,9 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       tipoDocumento,
       area,
       confianza,
+      campos,
+      informeEjecutivo,
+      resumenEjecutivo,
       derivacion: DERIVATION_EMAIL[tipoDocumento] ?? 'sin-derivacion'
     };
 
