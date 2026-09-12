@@ -34,26 +34,43 @@ jobs:
             "$AZURE_VM_USER@$AZURE_VM_HOST" '
               set -eu
               cd "$HOME/Gestor-Inteligente-de-Documentos"
+              export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+              if [ -s "$NVM_DIR/nvm.sh" ]; then
+                . "$NVM_DIR/nvm.sh"
+              fi
+              if ! command -v nvm >/dev/null 2>&1; then
+                echo "nvm no esta instalado en la VM" >&2
+                exit 1
+              fi
+              nvm install 22.12.0
+              nvm use 22.12.0
+              node --version
+              npm --version
               git fetch origin main
               git reset --hard origin/main
               npm ci
               npm run build
               if pm2 describe gestor-documentos-backend >/dev/null 2>&1; then
-                pm2 restart gestor-documentos-backend --update-env
-              else
-                pm2 start dist/index.js \
-                  --name gestor-documentos-backend \
-                  --cwd "$HOME/Gestor-Inteligente-de-Documentos"
+                pm2 delete gestor-documentos-backend
               fi
+              pm2 start dist/index.js \
+                --name gestor-documentos-backend \
+                --cwd "$HOME/Gestor-Inteligente-de-Documentos" \
+                --interpreter "$(command -v node)"
               pm2 save
 
-              for attempt in 1 2 3 4 5 6 7 8 9 10; do
-                if curl --fail --silent http://127.0.0.1:3000/health; then
+              health_port="$(sed -n 's/^PORT=//p' .env 2>/dev/null | tail -n 1)"
+              health_port="${health_port:-3000}"
+              for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+                if curl --fail --silent --show-error "http://127.0.0.1:${health_port}/health"; then
                   exit 0
                 fi
                 sleep 2
               done
 
               echo "Backend did not become healthy in time" >&2
+              echo "Node: $(node --version)" >&2
+              pm2 status >&2 || true
+              pm2 logs gestor-documentos-backend --lines 80 --nostream >&2 || true
               exit 1
             '
