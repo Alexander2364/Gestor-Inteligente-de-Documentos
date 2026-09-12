@@ -7,7 +7,8 @@ validateEnv(); // Falla rápido si faltan variables
 
 const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 
-const PORT = Number(process.env.PORT) ?? 3000;
+const parsedPort = Number.parseInt(process.env.PORT ?? '3000', 10);
+const PORT = Number.isFinite(parsedPort) ? parsedPort : 3000;
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
