@@ -8,19 +8,24 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"Lint no configurado todavía\"",
-    "test": "echo \"No hay pruebas configuradas todavía\""
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "worker": "tsx src/workers/document.worker.ts"
   },
   "keywords": [],
   "type": "commonjs",
   "dependencies": {
+    "bullmq": "^6.3.4",
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
+    "ioredis": "^6.0.0",
     "mammoth": "^1.9.0",
     "multer": "^2.3.0",
     "pdf-parse": "^1.1.1",
-    "sharp": "^0.33.5",
-    "tesseract.js": "^5.1.1"
+    "sharp": "^0.35.4",
+    "tesseract.js": "^5.1.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -28,7 +33,10 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^26.4.0",
     "@types/pdf-parse": "^1.1.4",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.2.2",
     "tsx": "^4.23.12",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
   }
 }
