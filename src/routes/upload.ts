@@ -1,9 +1,10 @@
 // src/routes/upload.ts
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { extractText, isSupportedMimeType } from '../services/extractor';
-import { classifyWithOllama } from '../services/ia';
+import { isSupportedMimeType } from '../services/extractor';
 import { closeOcrWorker } from '../services/extractor';
+import { enqueueDocument, getDocumentQueue } from '../queues/document.queue';
+import { processDocument } from '../services/document-processing';
 
 const router = Router();
 
@@ -12,28 +13,6 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }
 });
-
-// Mapeo tipo documento SUNAT -> email derivacion
-const DERIVATION_EMAIL: Record<string, string> = {
-  // Area: RECAUDACION Y CONTROL MASIVO
-  DECLARACION_JURADA_MENSUAL: 'declaraciones@sunat.gob.pe',
-  DECLARACION_JURADA_ANUAL: 'declaraciones@sunat.gob.pe',
-  RESOLUCION_FRACCIONAMIENTO: 'fraccionamiento@sunat.gob.pe',
-  RESOLUCION_APLAZAMIENTO: 'fraccionamiento@sunat.gob.pe',
-  ORDEN_PAGO_OP: 'ordenes_pago@sunat.gob.pe',
-  SOLICITUD_INSCRIPCION_RUC: 'ruc_inscripciones@sunat.gob.pe',
-  ACTUALIZACION_RUC: 'ruc_inscripciones@sunat.gob.pe',
-  RESOLUCION_DETERMINACION_RD: 'determinaciones@sunat.gob.pe',
-  SOLICITUD_APLAZAMIENTO: 'fraccionamiento@sunat.gob.pe',
-  RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO: 'fraccionamiento@sunat.gob.pe',
-  CARTA_PRESENTACION: 'recaudacion@sunat.gob.pe',
-  NOTIFICACION_ELECTRONICA: 'notificaciones@sunat.gob.pe',
-  
-  // Area: FISCALIZACION
-  RESOLUCION_MULTA_RM: 'fiscalizacion@sunat.gob.pe',
-  REQUERIMIENTO_FISCALIZACION: 'fiscalizacion@sunat.gob.pe',
-  AUDITORIA_LIBROS: 'fiscalizacion@sunat.gob.pe',
-};
 
 /**
  * POST /upload
@@ -51,44 +30,64 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
 
     console.log('[Upload] File:', req.file.originalname, 'mimetype:', req.file.mimetype);
 
-    if (!isSupportedMimeType(req.file.mimetype)) {
+    const extensionSupported = /\.(docx|docm|dotx|xlsx|xlsm|png|jpg|jpeg|tiff|bmp|pdf)$/i.test(req.file.originalname);
+    if (!isSupportedMimeType(req.file.mimetype) && !(req.file.mimetype === 'application/octet-stream' && extensionSupported)) {
       console.log('[Upload] Mime type not supported:', req.file.mimetype);
       return res.status(400).json({ error: `Tipo no soportado: ${req.file.mimetype}` });
     }
 
-    // 2. Extraer texto
-    console.log('[Upload] Extracting text...');
-    const { text } = await extractText(req.file.buffer, req.file.mimetype, req.file.originalname);
-    console.log('[Upload] Text extracted, length:', text.length);
-
-    if (!text || text.trim().length < 20) {
-      return res.status(400).json({ error: 'No se pudo extraer texto suficiente del documento' });
-    }
-
-    // 3. Clasificar con IA (Ollama)
-    console.log('[Upload] Classifying with IA...');
-    const { tipoDocumento, area, confianza, campos, informeEjecutivo, resumenEjecutivo } = await classifyWithOllama(text);
-    console.log('[Upload] Classified:', tipoDocumento, area, confianza);
-
-    // 4. Responder al cliente INMEDIATAMENTE
-    const response = {
+    const jobData = {
       fileName: req.file.originalname,
-      tipoDocumento,
-      area,
-      confianza,
-      campos,
-      informeEjecutivo,
-      resumenEjecutivo,
-      derivacion: DERIVATION_EMAIL[tipoDocumento] ?? 'sin-derivacion'
+      mimeType: req.file.mimetype,
+      fileBase64: req.file.buffer.toString('base64'),
     };
 
-    res.json(response);
-    console.log('[Upload] Response sent');
+    if (process.env.QUEUE_ENABLED === 'true') {
+      const job = await enqueueDocument(jobData);
+      return res.status(202).json({
+        jobId: job.id,
+        fileName: req.file.originalname,
+        status: 'pending',
+      });
+    }
+
+    const response = await processDocument(jobData);
+    return res.json(response);
 
   } catch (err) {
     console.error('[Upload] Error:', err);
     const message = err instanceof Error ? err.message : 'Error interno';
     res.status(500).json({ error: message });
+  }
+});
+
+router.get('/status/:jobId', async (req: Request, res: Response) => {
+  if (process.env.QUEUE_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'La cola no esta habilitada' });
+  }
+  try {
+    const job = await getDocumentQueue().getJob(String(req.params.jobId));
+    if (!job) return res.status(404).json({ error: 'Trabajo no encontrado' });
+    const rawState = await job.getState();
+    const status = rawState === 'active'
+      ? 'processing'
+      : rawState === 'completed'
+        ? 'completed'
+        : rawState === 'failed'
+          ? 'failed'
+          : job.attemptsMade > 0
+            ? 'retrying'
+            : 'pending';
+    return res.json({
+      jobId: job.id,
+      status,
+      result: status === 'completed' ? job.returnvalue : undefined,
+      error: status === 'failed' ? job.failedReason : undefined,
+      attempts: job.attemptsMade,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'No se pudo consultar el trabajo';
+    return res.status(503).json({ error: message });
   }
 });
 

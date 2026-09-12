@@ -13,7 +13,12 @@ const OPTIONAL_VARS = [
     'SMTP_PORT',
     'SMTP_USER',
     'SMTP_PASS',
-    'SMTP_FROM'
+    'SMTP_FROM',
+    'REDIS_URL',
+    'QUEUE_ENABLED',
+    'QUEUE_ATTEMPTS',
+    'QUEUE_BACKOFF_MS',
+    'OLLAMA_CONCURRENCY'
 ] as const;
 
 type RequiredVar = typeof REQUIRED_VARS[number];
@@ -42,6 +47,7 @@ export function validateEnv(): void {
     console.log(` OLLAMA_MODEL: ${process.env.OLLAMA_MODEL}`);
     console.log(` OLLAMA_TIMEOUT_MS: ${process.env.OLLAMA_TIMEOUT_MS ?? '60000 (default)'}`);
     console.log(` FRONTEND_URL: ${process.env.FRONTEND_URL ?? 'no configurado'}`);
+    console.log(` QUEUE_ENABLED: ${process.env.QUEUE_ENABLED ?? 'false'}`);
 }
 
 // Helper tipado para leer variables
