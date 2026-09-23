@@ -8,3 +8,4 @@ coverage
 # Graphify
 graphify-out/
 .graphify_*
+.aider*
