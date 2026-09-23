@@ -139,30 +139,43 @@ function extractFromXlsx(buffer: Buffer): ExtractResult {
     };
 }
 
-
 //12. extractFromImage
 async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Promise<ExtractResult> {
+    let processedBuffer: Buffer;
 
-  try {
-    //preprocesamiento
-    const processedBuffer = await preprocessImage(buffer);
-    //Rreconocimiento OCR
-    const worker = await getOcrWorker();
-    const {data: {text}} = await worker.recognize(processedBuffer);
+    try {
+        processedBuffer = await preprocessImage(buffer);
+    } catch (error) {
+        throw new Error(`Error preprocesando imagen de tipo ${mimeType}: ${error.message}`);
+    }
+
+    let text = '';
+    const maxAttempts = 2;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            const worker = await getOcrWorker();
+            const { data: { text: extractedText } } = await worker.recognize(processedBuffer);
+            text = normalizeText(extractedText);
+            if (text.trim() !== '') {
+                break;
+            }
+        } catch (error) {
+            console.error(`Intento ${attempt + 1} fallido de OCR:`, error);
+            if (attempt === maxAttempts - 1) {
+                throw new Error(`Error en OCR después de ${maxAttempts} reintentos: ${error.message}`);
+            }
+        }
+    }
+
+    if (text.trim() === '') {
+        throw new Error(`Texto extraído está vacío para tipo ${mimeType}`);
+    }
 
     return {
-      text: normalizeText(text),
-      mimeType: mimeType,
+        text,
+        mimeType
     };
-
-  }catch (error) {
-    console.error(`Error al procesar imagen de tipo ${mimeType}:`, error);
-
-    return {
-    text: 'ERROR: No se pudo extraer texto de la imagen debido a un fallo en el procesamiento OCR',
-      mimeType: mimeType,
-    };
-  }
 }
 
 //13. Cleanup
@@ -175,7 +188,7 @@ export async function closeOcrWorker(): Promise<void> {
 
 export function isSupportedMimeType(mimeType: string): mimeType is SupportedMimeType {
     const baseTypes = [PDF_MIME, DOCX_MIME, XLSX_MIME, ...IMAGE_MIMES];
-  return baseTypes.includes(mimeType as SupportedMimeType) || DOCX_MIME_TYPES.has(mimeType);
+    return baseTypes.includes(mimeType as SupportedMimeType) || DOCX_MIME_TYPES.has(mimeType);
 }
 
 export { DOCX_MIME_TYPES };
