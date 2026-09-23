@@ -159,7 +159,7 @@ async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Pr
     console.error(`Error al procesar imagen de tipo ${mimeType}:`, error);
 
     return {
-    text: 'ERROR: No se pudo extraer texto de la imagen debido a un fallo en el procesamiento',
+    text: 'ERROR: No se pudo extraer texto de la imagen debido a un fallo en el procesamiento OCR',
       mimeType: mimeType,
     };
   }
