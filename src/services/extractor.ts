@@ -141,12 +141,13 @@ function extractFromXlsx(buffer: Buffer): ExtractResult {
 
 //12. extractFromImage
 async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Promise<ExtractResult> {
-    let processedBuffer: Buffer;
+    let processedBuffer!: Buffer;
 
     try {
         processedBuffer = await preprocessImage(buffer);
     } catch (error) {
-        throw new Error(`Error preprocesando imagen de tipo ${mimeType}: ${error.message}`);
+        const msg = error instanceof Error ? error.message : 'Error desconocido';
+        throw new Error(`Error preprocesando imagen de tipo ${mimeType}: ${msg}`);
     }
 
     let text = '';
@@ -161,9 +162,10 @@ async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Pr
                 break;
             }
         } catch (error) {
-            console.error(`Intento ${attempt + 1} fallido de OCR:`, error);
+            const msg = error instanceof Error ? error.message : 'Error desconocido';
+            console.error(`Intento ${attempt + 1} fallido de OCR:`, msg);
             if (attempt === maxAttempts - 1) {
-                throw new Error(`Error en OCR después de ${maxAttempts} reintentos: ${error.message}`);
+                throw new Error(`Error en OCR después de ${maxAttempts} reintentos: ${msg}`);
             }
         }
     }
