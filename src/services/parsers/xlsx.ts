@@ -5,8 +5,8 @@ export async function parseXlsx(buffer: Buffer): Promise<NativeExtractedDocument
   try {
     const workbook = new Workbook();
     
-    // @ts-expect-error: Conflicto de tipos conocido entre @types/node (Buffer<ArrayBufferLike>) 
-    // y las definiciones de exceljs. En tiempo de ejecución, el Buffer de Node.js es 100% compatible.
+    
+    // @ts-ignore: Conflicto de tipos entre @types/node (Buffer<ArrayBufferLike>) y exceljs.
     await workbook.xlsx.load(buffer);
 
     const tables = await Promise.all(
