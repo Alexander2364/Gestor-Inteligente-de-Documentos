@@ -128,8 +128,8 @@ async function extractFromDocx(buffer: Buffer): Promise<ExtractResult> {
     };
 }
 
-function extractFromXlsx(buffer: Buffer): ExtractResult {
-    const document = parseXlsx(buffer);
+async function extractFromXlsx(buffer: Buffer): Promise<ExtractResult> {
+    const document = await parseXlsx(buffer); // ← Se añade 'async' y 'await'
     return {
         text: normalizeText(document.text),
         mimeType: XLSX_MIME,
