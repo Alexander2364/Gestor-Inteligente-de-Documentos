@@ -26,6 +26,7 @@ export async function processDocument(jobData: {
   fileName: string;
   mimeType: string;
   fileBase64: string;
+  userId?: string; // Asegúrate de que el jobData tenga la propiedad userId
 }): Promise<DocumentJobResult> {
   const supabase = getSupabaseClient();
   let documentId: string | undefined;
@@ -37,9 +38,9 @@ export async function processDocument(jobData: {
       .insert([
         {
           file_name: jobData.fileName,
-          user_id: 'current_user_id', // Reemplaza con el ID del usuario autenticado
           processing_status: 'processing',
           upload_date: new Date().toISOString(),
+          ...(jobData.userId ? { user_id: jobData.userId } : {})
         },
       ])
       .select();
