@@ -28,7 +28,8 @@ export async function processDocument(jobData: {
   fileBase64: string;
 }): Promise<DocumentJobResult> {
   const supabase = getSupabaseClient();
-  
+  let documentId: string | undefined;
+
   try {
     // 1. Insertar en documents
     const { data: documentData, error: docError } = await supabase
@@ -47,7 +48,7 @@ export async function processDocument(jobData: {
       throw new Error(`Failed to insert document: ${docError.message}`);
     }
 
-    const documentId = documentData[0].id;
+    documentId = documentData[0].id;
 
     // 2. Procesar documento
     const buffer = Buffer.from(jobData.fileBase64, 'base64');
@@ -127,7 +128,7 @@ export async function processDocument(jobData: {
           {
             document_id: documentId,
             target_area: result.area,
-            derivation_reason: result.derivacion,
+            derivation_reason: `Derivación automática basada en clasificación: ${result.tipoDocumento}`,
             status: 'pending',
             created_at: new Date().toISOString(),
           },
@@ -144,6 +145,7 @@ export async function processDocument(jobData: {
     return {
       fileName: jobData.fileName,
       ...result,
+      derivacion: `Derivado a ${result.area}`,
     };
 
   } catch (error) {
