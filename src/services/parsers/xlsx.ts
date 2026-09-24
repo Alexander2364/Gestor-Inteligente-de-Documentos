@@ -1,25 +1,55 @@
-import * as XLSX from 'xlsx';
+import { Workbook, Row, CellValue } from 'exceljs';
 import { NativeExtractedDocument } from './types';
 
-export function parseXlsx(buffer: Buffer): NativeExtractedDocument {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true, raw: false });
-  const tables = workbook.SheetNames.map((name) => {
-    const sheet = workbook.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
-      header: 1,
-      raw: false,
-      defval: '',
-    }).map((row) => row.map((cell) => String(cell)));
-    return { name, rows };
-  });
-  const text = tables
-    .flatMap(({ name, rows }) => [`Hoja: ${name}`, ...rows.map((row) => row.join(' | '))])
-    .join('\n')
-    .trim();
-  return {
-    text,
-    blocks: tables.map(({ name }) => `Hoja: ${name}`),
-    tables,
-    metadata: { extractor: 'xlsx', sheets: workbook.SheetNames.length },
-  };
+export async function parseXlsx(buffer: Buffer): Promise<NativeExtractedDocument> {
+  try {
+    const workbook = new Workbook();
+    
+    
+    // @ts-ignore: Conflicto de tipos entre @types/node (Buffer<ArrayBufferLike>) y exceljs.
+    await workbook.xlsx.load(buffer);
+
+    const tables = await Promise.all(
+      workbook.worksheets.map(async (sheet) => {
+        const rows: string[][] = [];
+        
+        // eachRow itera sobre las filas reales de la hoja
+        sheet.eachRow({ includeEmpty: false }, (row: Row) => {
+          // row.values puede ser null o un array de CellValue
+          if (row.values && Array.isArray(row.values)) {
+            // Los valores en exceljs son 1-indexados (el índice 0 es null)
+            const cells = (row.values as CellValue[])
+              .slice(1)
+              .map((cell: CellValue) => {
+                if (cell === null || cell === undefined) return '';
+                return String(cell);
+              });
+            rows.push(cells);
+          }
+        });
+
+        return {
+          name: sheet.name || 'Hoja sin nombre',
+          rows,
+        };
+      })
+    );
+
+    // Unificar el texto manteniendo el formato original del proyecto
+    const text = tables
+      .flatMap(({ name, rows }) => [`Hoja: ${name}`, ...rows.map((row) => row.join(' | '))])
+      .join('\n')
+      .trim();
+
+    return {
+      text,
+      blocks: tables.map(({ name }) => `Hoja: ${name}`),
+      tables,
+      metadata: { extractor: 'exceljs', sheets: workbook.worksheets.length },
+    };
+  } catch (error) {
+    // Manejo de errores estricto
+    const msg = error instanceof Error ? error.message : 'Error desconocido procesando archivo XLSX';
+    throw new Error(msg);
+  }
 }

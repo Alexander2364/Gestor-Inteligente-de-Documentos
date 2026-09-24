@@ -1,0 +1,18 @@
+Graph: graphify-out/graph.json (184 nodes) | Traversal: BFS depth=2 | Start: ['Gestor-Inteligente-de-Documentos', 'Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT)'] | 9 nodes found
+
+NODE Gestor-Inteligente-de-Documentos [src=README.md loc=L1 community=Reglas del proyecto]
+NODE Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT) [src=PROJECT_CONTEXT.md loc=L1 community=Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT)]
+NODE README.md [src=README.md loc=L1 community=Reglas del proyecto]
+NODE PROJECT_CONTEXT.md [src=PROJECT_CONTEXT.md loc=L1 community=Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT)]
+NODE 1. Objetivo y Alcance [src=PROJECT_CONTEXT.md loc=L3 community=Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT)]
+NODE 2. Estado Actual (Avance 1 - COMPLETADO) [src=PROJECT_CONTEXT.md loc=L13 community=Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT)]
+NODE 3. Pendientes Inmediatos (Avance 2 - Semanas 5-6) [src=PROJECT_CONTEXT.md loc=L20 community=Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT)]
+NODE 4. Reglas de Interacción con Aider [src=PROJECT_CONTEXT.md loc=L27 community=Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT)]
+NODE Reglas del proyecto [src=README.md loc=L3 community=Reglas del proyecto]
+EDGE README.md --contains [EXTRACTED]--> Gestor-Inteligente-de-Documentos at=README.md:L1
+EDGE PROJECT_CONTEXT.md --contains [EXTRACTED]--> Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT) at=PROJECT_CONTEXT.md:L1
+EDGE Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT) --contains [EXTRACTED]--> 2. Estado Actual (Avance 1 - COMPLETADO) at=PROJECT_CONTEXT.md:L13
+EDGE Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT) --contains [EXTRACTED]--> 3. Pendientes Inmediatos (Avance 2 - Semanas 5-6) at=PROJECT_CONTEXT.md:L20
+EDGE Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT) --contains [EXTRACTED]--> 4. Reglas de Interacción con Aider at=PROJECT_CONTEXT.md:L27
+EDGE Contexto del Proyecto: Gestor Inteligente de Documentos (SUNAT) --contains [EXTRACTED]--> 1. Objetivo y Alcance at=PROJECT_CONTEXT.md:L3
+EDGE README.md --contains [EXTRACTED]--> Reglas del proyecto at=README.md:L3
