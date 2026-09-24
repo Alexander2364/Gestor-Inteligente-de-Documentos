@@ -6,3 +6,4 @@ tests/
 coverage/
 graphify-out/
 *.txt
+.git/
