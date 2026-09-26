@@ -9,3 +9,8 @@ coverage
 graphify-out/
 .graphify_*
 .aider*
+
+# Archivos de contexto temporal de IA
+ARCHITECTURE_GRAPH.md
+PROJECT_CONTEXT.md
+backend_*.txt
