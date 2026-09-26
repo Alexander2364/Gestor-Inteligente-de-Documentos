@@ -4,7 +4,7 @@ import { DocumentJobData, DocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
 import type { Document, DocumentAnalysis, ExtractedMetadata, DocumentDerivation } from '../types/supabase';
 
-const STORAGE_BUCKET = 'documents';
+const STORAGE_BUCKET = 'DocumentosIA';
 
 async function uploadToStorage(supabase: ReturnType<typeof getSupabaseClient>, documentId: string, fileName: string, fileBase64: string, mimeType: string): Promise<string | null> {
   try {
