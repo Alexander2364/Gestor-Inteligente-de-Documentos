@@ -4,6 +4,37 @@ import { DocumentJobData, DocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
 import type { Document, DocumentAnalysis, ExtractedMetadata, DocumentDerivation } from '../types/supabase';
 
+const STORAGE_BUCKET = 'documents';
+
+async function uploadToStorage(supabase: ReturnType<typeof getSupabaseClient>, documentId: string, fileName: string, fileBase64: string, mimeType: string): Promise<string | null> {
+  try {
+    const buffer = Buffer.from(fileBase64, 'base64');
+    const fileExt = fileName.split('.').pop() || 'bin';
+    const storagePath = `${documentId}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(storagePath, buffer, {
+        contentType: mimeType,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Error subiendo a Storage:', uploadError.message);
+      return null;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(storagePath);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Error en uploadToStorage:', error);
+    return null;
+  }
+}
+
 const DERIVATION_EMAIL: Record<string, string> = {
   DECLARACION_JURADA_MENSUAL: 'declaraciones@sunat.gob.pe',
   DECLARACION_JURADA_ANUAL: 'declaraciones@sunat.gob.pe',
@@ -50,6 +81,16 @@ export async function processDocument(jobData: {
     }
 
     documentId = documentData[0].id;
+
+    // 1b. Subir archivo a Supabase Storage
+    let storageUrl: string | null = null;
+    storageUrl = await uploadToStorage(supabase, documentId, jobData.fileName, jobData.fileBase64, jobData.mimeType);
+    if (storageUrl) {
+      await supabase
+        .from('documents')
+        .update({ storage_url: storageUrl })
+        .eq('id', documentId);
+    }
 
     // 2. Procesar documento
     const buffer = Buffer.from(jobData.fileBase64, 'base64');
@@ -147,6 +188,7 @@ export async function processDocument(jobData: {
       fileName: jobData.fileName,
       ...result,
       derivacion: `Derivado a ${result.area}`,
+      storageUrl,
     };
 
   } catch (error) {
