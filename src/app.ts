@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import uploadRouter from './routes/upload';
+import documentsRouter from './routes/documents';
 
 export function createApp() {
   const app = express();
@@ -34,6 +35,7 @@ export function createApp() {
   });
 
   app.use('/upload', uploadRouter);
+  app.use('/documents', documentsRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: 'Ruta no encontrada' });

@@ -4,6 +4,37 @@ import { DocumentJobData, DocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
 import type { Document, DocumentAnalysis, ExtractedMetadata, DocumentDerivation } from '../types/supabase';
 
+const STORAGE_BUCKET = 'DocumentosIA';
+
+async function uploadToStorage(supabase: ReturnType<typeof getSupabaseClient>, documentId: string, fileName: string, fileBase64: string, mimeType: string): Promise<string | null> {
+  try {
+    const buffer = Buffer.from(fileBase64, 'base64');
+    const fileExt = fileName.split('.').pop() || 'bin';
+    const storagePath = `${documentId}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(storagePath, buffer, {
+        contentType: mimeType,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Error subiendo a Storage:', uploadError.message);
+      return null;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(storagePath);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Error en uploadToStorage:', error);
+    return null;
+  }
+}
+
 const DERIVATION_EMAIL: Record<string, string> = {
   DECLARACION_JURADA_MENSUAL: 'declaraciones@sunat.gob.pe',
   DECLARACION_JURADA_ANUAL: 'declaraciones@sunat.gob.pe',
@@ -22,12 +53,17 @@ const DERIVATION_EMAIL: Record<string, string> = {
   RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO: 'fraccionamiento@sunat.gob.pe',
 };
 
-export async function processDocument(jobData: {
-  fileName: string;
-  mimeType: string;
-  fileBase64: string;
-  userId?: string; // Asegúrate de que el jobData tenga la propiedad userId
-}): Promise<DocumentJobResult> {
+// Extend DocumentJobData with optional userId for internal use
+interface ProcessDocumentData extends DocumentJobData {
+  userId?: string;
+}
+
+export async function processDocument(jobData: ProcessDocumentData): Promise<DocumentJobResult> {
+  // Explicitly type as string (DocumentJobData requires these)
+  const fileName: string = jobData.fileName;
+  const fileBase64: string = jobData.fileBase64;
+  const mimeType: string = jobData.mimeType;
+  const userId = jobData.userId;
   const supabase = getSupabaseClient();
   let documentId: string | undefined;
 
@@ -37,10 +73,10 @@ export async function processDocument(jobData: {
       .from('documents')
       .insert([
         {
-          file_name: jobData.fileName,
+          file_name: fileName,
           processing_status: 'processing',
           upload_date: new Date().toISOString(),
-          ...(jobData.userId ? { user_id: jobData.userId } : {})
+          ...(userId ? { user_id: userId } : {})
         },
       ])
       .select();
@@ -51,9 +87,20 @@ export async function processDocument(jobData: {
 
     documentId = documentData[0].id;
 
+    // 1b. Subir archivo a Supabase Storage
+    let storageUrl: string | null = null;
+    // documentId is guaranteed to be set after successful insert above
+    storageUrl = await uploadToStorage(supabase, documentId!, fileName, fileBase64, mimeType);
+    if (storageUrl) {
+      await supabase
+        .from('documents')
+        .update({ storage_url: storageUrl })
+        .eq('id', documentId);
+    }
+
     // 2. Procesar documento
-    const buffer = Buffer.from(jobData.fileBase64, 'base64');
-    const { text } = await extractText(buffer, jobData.mimeType, jobData.fileName);
+    const buffer = Buffer.from(fileBase64, 'base64');
+    const { text } = await extractText(buffer, mimeType, fileName);
 
     if (!text || text.trim().length < 20) {
       throw new Error('No se pudo extraer texto suficiente del documento');
@@ -144,9 +191,10 @@ export async function processDocument(jobData: {
     }
 
     return {
-      fileName: jobData.fileName,
+      fileName,
       ...result,
       derivacion: `Derivado a ${result.area}`,
+      storageUrl,
     };
 
   } catch (error) {
