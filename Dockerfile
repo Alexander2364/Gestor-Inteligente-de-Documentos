@@ -1,33 +1,40 @@
-# Etapa 1: Builder
-FROM node:20-alpine AS builder
+# syntax=docker/dockerfile:1
+FROM node:22-alpine AS builder
 
-# Configurar directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias
-COPY package.json ./
+# Copiar archivos de dependencias
+COPY package*.json ./
+
+# Instalar TODAS las dependencias (incluyendo devDependencies para compilar)
 RUN npm ci
 
-# Copiar código fuente
+# Copiar el código fuente
 COPY . .
 
-# Construir el proyecto
+# Compilar el proyecto a JavaScript
 RUN npm run build
 
-# Etapa 2: Runner
-FROM node:20-alpine AS runner
+# ==========================================
+# Etapa de producción (ligera y segura)
+# ==========================================
+FROM node:22-alpine AS runner
 
-# Configurar directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias de producción
-COPY package.json ./
+ENV NODE_ENV=production
+
+# Copiar solo los archivos de dependencias
+COPY package*.json ./
+
+# Instalar SOLO dependencias de producción (más rápido y seguro)
 RUN npm ci --omit=dev
 
-# Copiar código compilado de la etapa builder
-COPY --from=builder ./dist/ .
+# Copiar el código compilado desde la etapa de builder
+COPY --from=builder /app/dist ./dist
 
-# Expón puerto 3000
+# Puerto por defecto de Express
 EXPOSE 3000
 
-# No definimos CMD/ENTRYPOINT aquí, se definirán en docker-compose.yml
+# Comando por defecto (será sobrescrito en docker-compose)
+CMD ["node", "dist/index.js"]
