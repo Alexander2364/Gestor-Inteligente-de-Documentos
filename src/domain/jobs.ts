@@ -15,4 +15,5 @@ export interface DocumentJobResult {
   informeEjecutivo: Record<string, unknown>;
   resumenEjecutivo: string;
   derivacion: string;
+  storageUrl?: string | null;
 }

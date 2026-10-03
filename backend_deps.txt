@@ -1,0 +1,102 @@
+Graph: graphify-out/graph.json (184 nodes) | Traversal: BFS depth=2 | Start: ['src/**/*', 'IMPORTANT: keep the reminder string free of backticks and $(...) constructs.', 'closeOcrWorker()'] | 37 nodes found
+
+[i] Complete answer over budget: all 37 nodes and 61 edges shown (~3089 tokens vs the requested ~2000-token budget). Edges are never dropped once every node fits, so this is already the full answer — raising --budget further will not shrink it. Narrow with context_filter=['call'] or use get_node for a specific symbol to reduce size instead.
+
+NODE src/**/* [src=tsconfig.json loc=L13 community=compilerOptions]
+NODE IMPORTANT: keep the reminder string free of backticks and $(...) constructs. [src=.opencode/plugins/graphify.js loc=L4 community=graphify.js]
+NODE closeOcrWorker() [src=src/services/extractor.ts loc=L184 community=extractor.ts]
+NODE extractor.ts [src=src/services/extractor.ts loc=L1 community=extractor.ts]
+NODE upload.ts [src=src/routes/upload.ts loc=L1 community=upload.ts]
+NODE graphify.js [src=.opencode/plugins/graphify.js loc=L1 community=graphify.js]
+NODE include [src=tsconfig.json loc=L13 community=compilerOptions]
+NODE document-processing.ts [src=src/services/document-processing.ts loc=L1 community=upload.ts]
+NODE document.queue.ts [src=src/queues/document.queue.ts loc=L1 community=upload.ts]
+NODE extractText() [src=src/services/extractor.ts loc=L75 community=extractor.ts]
+NODE app.ts [src=src/app.ts loc=L1 community=upload.ts]
+NODE processDocument() [src=src/services/document-processing.ts loc=L23 community=upload.ts]
+NODE extractFromImage() [src=src/services/extractor.ts loc=L143 community=extractor.ts]
+NODE normalizeText() [src=src/services/extractor.ts loc=L59 community=extractor.ts]
+NODE docx.ts [src=src/services/parsers/docx.ts loc=L1 community=extractor.ts]
+NODE getDocumentQueue() [src=src/queues/document.queue.ts loc=L8 community=upload.ts]
+NODE extractFromDocx() [src=src/services/extractor.ts loc=L120 community=extractor.ts]
+NODE extractFromXlsx() [src=src/services/extractor.ts loc=L131 community=extractor.ts]
+NODE parseDocx() [src=src/services/parsers/docx.ts loc=L13 community=extractor.ts]
+NODE xlsx.ts [src=src/services/parsers/xlsx.ts loc=L1 community=extractor.ts]
+NODE enqueueDocument() [src=src/queues/document.queue.ts loc=L15 community=upload.ts]
+NODE extractFromPdf() [src=src/services/extractor.ts loc=L110 community=extractor.ts]
+NODE isSupportedMimeType() [src=src/services/extractor.ts loc=L191 community=extractor.ts]
+NODE preprocessImage() [src=src/services/ocr/preprocess.ts loc=L3 community=extractor.ts]
+NODE parseXlsx() [src=src/services/parsers/xlsx.ts loc=L4 community=extractor.ts]
+NODE tsconfig.json [src=tsconfig.json loc=L1 community=compilerOptions]
+NODE router [src=src/routes/upload.ts loc=L9 community=upload.ts]
+NODE getOcrWorker() [src=src/services/extractor.ts loc=L47 community=extractor.ts]
+NODE preprocess.ts [src=src/services/ocr/preprocess.ts loc=L1 community=extractor.ts]
+NODE extractor.test.ts [src=tests/unit/extractor.test.ts loc=L1 community=extractor.ts]
+NODE GraphifyPlugin() [src=.opencode/plugins/graphify.js loc=L12 community=graphify.js]
+NODE upload [src=src/routes/upload.ts loc=L12 community=upload.ts]
+NODE DOCX_MIME_TYPES [src=src/services/extractor.ts loc=L37 community=extractor.ts]
+NODE DOCX_MIMES [src=src/services/extractor.ts loc=L35 community=extractor.ts]
+NODE ExtractResult [src=src/services/extractor.ts loc=L21 community=extractor.ts]
+NODE IMAGE_MIMES [src=src/services/extractor.ts loc=L43 community=extractor.ts]
+NODE SupportedMimeType [src=src/services/extractor.ts loc=L9 community=extractor.ts]
+EDGE IMPORTANT: keep the reminder string free of backticks and $(...) constructs. --rationale_for [EXTRACTED]--> graphify.js at=.opencode/plugins/graphify.js:L4
+EDGE include --extends [EXTRACTED context=import]--> src/**/* at=tsconfig.json:L13
+EDGE upload.ts --imports [EXTRACTED context=import]--> closeOcrWorker() at=src/routes/upload.ts:L5
+EDGE extractor.ts --contains [EXTRACTED]--> closeOcrWorker() at=src/services/extractor.ts:L184
+EDGE upload.ts --imports [EXTRACTED context=import]--> isSupportedMimeType() at=src/routes/upload.ts:L4
+EDGE upload.ts --imports [EXTRACTED context=import]--> enqueueDocument() at=src/routes/upload.ts:L6
+EDGE upload.ts --imports [EXTRACTED context=import]--> getDocumentQueue() at=src/routes/upload.ts:L6
+EDGE upload.ts --imports [EXTRACTED context=import]--> processDocument() at=src/routes/upload.ts:L7
+EDGE app.ts --imports_from [EXTRACTED context=import]--> upload.ts at=src/app.ts:L3
+EDGE upload.ts --imports_from [EXTRACTED context=import]--> document.queue.ts at=src/routes/upload.ts:L6
+EDGE upload.ts --imports_from [EXTRACTED context=import]--> document-processing.ts at=src/routes/upload.ts:L7
+EDGE upload.ts --contains [EXTRACTED]--> upload at=src/routes/upload.ts:L12
+EDGE upload.ts --contains [EXTRACTED]--> router at=src/routes/upload.ts:L9
+EDGE extractor.ts --imports [EXTRACTED context=import]--> parseDocx() at=src/services/extractor.ts:L4
+EDGE extractor.ts --imports [EXTRACTED context=import]--> parseXlsx() at=src/services/extractor.ts:L5
+EDGE extractor.ts --imports [EXTRACTED context=import]--> preprocessImage() at=src/services/extractor.ts:L6
+EDGE document-processing.ts --imports_from [EXTRACTED context=import]--> extractor.ts at=src/services/document-processing.ts:L1
+EDGE extractor.ts --imports_from [EXTRACTED context=import]--> docx.ts at=src/services/extractor.ts:L4
+EDGE extractor.ts --imports_from [EXTRACTED context=import]--> xlsx.ts at=src/services/extractor.ts:L5
+EDGE extractor.ts --imports_from [EXTRACTED context=import]--> preprocess.ts at=src/services/extractor.ts:L6
+EDGE extractor.test.ts --imports_from [EXTRACTED context=import]--> extractor.ts at=tests/unit/extractor.test.ts:L3
+EDGE extractor.ts --contains [EXTRACTED]--> extractFromPdf() at=src/services/extractor.ts:L110
+EDGE extractor.ts --contains [EXTRACTED]--> extractFromDocx() at=src/services/extractor.ts:L120
+EDGE extractor.ts --contains [EXTRACTED]--> extractFromXlsx() at=src/services/extractor.ts:L131
+EDGE extractor.ts --contains [EXTRACTED]--> extractFromImage() at=src/services/extractor.ts:L143
+EDGE extractor.ts --contains [EXTRACTED]--> isSupportedMimeType() at=src/services/extractor.ts:L191
+EDGE extractor.ts --contains [EXTRACTED]--> ExtractResult at=src/services/extractor.ts:L21
+EDGE extractor.ts --contains [EXTRACTED]--> DOCX_MIMES at=src/services/extractor.ts:L35
+EDGE extractor.ts --contains [EXTRACTED]--> DOCX_MIME_TYPES at=src/services/extractor.ts:L37
+EDGE extractor.ts --contains [EXTRACTED]--> IMAGE_MIMES at=src/services/extractor.ts:L43
+EDGE extractor.ts --contains [EXTRACTED]--> getOcrWorker() at=src/services/extractor.ts:L47
+EDGE extractor.ts --contains [EXTRACTED]--> normalizeText() at=src/services/extractor.ts:L59
+EDGE extractor.ts --contains [EXTRACTED]--> extractText() at=src/services/extractor.ts:L75
+EDGE extractor.ts --contains [EXTRACTED]--> SupportedMimeType at=src/services/extractor.ts:L9
+EDGE tsconfig.json --contains [EXTRACTED]--> include at=tsconfig.json:L13
+EDGE graphify.js --contains [EXTRACTED]--> GraphifyPlugin() at=.opencode/plugins/graphify.js:L12
+EDGE app.ts --imports [EXTRACTED context=import]--> router at=src/app.ts:L3
+EDGE document.queue.ts --contains [EXTRACTED]--> enqueueDocument() at=src/queues/document.queue.ts:L15
+EDGE document.queue.ts --contains [EXTRACTED]--> getDocumentQueue() at=src/queues/document.queue.ts:L8
+EDGE enqueueDocument() --calls [EXTRACTED context=call]--> getDocumentQueue() at=src/queues/document.queue.ts:L16
+EDGE upload.ts --imports_from [EXTRACTED context=import]--> extractor.ts at=src/routes/upload.ts:L5
+EDGE document-processing.ts --imports [EXTRACTED context=import]--> extractText() at=src/services/document-processing.ts:L1
+EDGE document-processing.ts --contains [EXTRACTED]--> processDocument() at=src/services/document-processing.ts:L23
+EDGE processDocument() --calls [EXTRACTED context=call]--> extractText() at=src/services/document-processing.ts:L25
+EDGE extractFromDocx() --calls [EXTRACTED context=call]--> parseDocx() at=src/services/extractor.ts:L121
+EDGE extractFromDocx() --calls [EXTRACTED context=call]--> normalizeText() at=src/services/extractor.ts:L123
+EDGE extractText() --calls [EXTRACTED context=call]--> extractFromDocx() at=src/services/extractor.ts:L101
+EDGE extractFromImage() --calls [EXTRACTED context=call]--> preprocessImage() at=src/services/extractor.ts:L147
+EDGE extractFromImage() --calls [EXTRACTED context=call]--> getOcrWorker() at=src/services/extractor.ts:L158
+EDGE extractFromImage() --calls [EXTRACTED context=call]--> normalizeText() at=src/services/extractor.ts:L160
+EDGE extractText() --calls [EXTRACTED context=call]--> extractFromImage() at=src/services/extractor.ts:L105
+EDGE extractFromPdf() --calls [EXTRACTED context=call]--> normalizeText() at=src/services/extractor.ts:L113
+EDGE extractText() --calls [EXTRACTED context=call]--> extractFromPdf() at=src/services/extractor.ts:L98
+EDGE extractFromXlsx() --calls [EXTRACTED context=call]--> parseXlsx() at=src/services/extractor.ts:L132
+EDGE extractFromXlsx() --calls [EXTRACTED context=call]--> normalizeText() at=src/services/extractor.ts:L134
+EDGE extractText() --calls [EXTRACTED context=call]--> extractFromXlsx() at=src/services/extractor.ts:L103
+EDGE extractText() --calls [EXTRACTED context=call]--> isSupportedMimeType() at=src/services/extractor.ts:L92
+EDGE extractor.test.ts --imports [EXTRACTED context=import]--> extractText() at=tests/unit/extractor.test.ts:L3
+EDGE preprocess.ts --contains [EXTRACTED]--> preprocessImage() at=src/services/ocr/preprocess.ts:L3
+EDGE docx.ts --contains [EXTRACTED]--> parseDocx() at=src/services/parsers/docx.ts:L13
+EDGE xlsx.ts --contains [EXTRACTED]--> parseXlsx() at=src/services/parsers/xlsx.ts:L4
