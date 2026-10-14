@@ -91,6 +91,80 @@ export function detectActaType(
   return null;
 }
 
+export function extractActaFields(text: string): Record<string, any> {
+  const read = (patterns: RegExp[]): string => {
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match?.[1]?.trim()) return match[1].trim();
+    }
+    return '';
+  };
+
+  const type = detectActaType(text);
+  const fields: Record<string, any> = {
+    numeroActa: read([/\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?acta\s*[:#-]?\s*([^\n,;]+)/i]),
+    tipoAccion: type === 'ACTA_INMOVILIZACION'
+      ? 'INMOVILIZACION'
+      : type === 'ACTA_INCAUTACION' ? 'INCAUTACION' : '',
+    fecha: read([/\bfecha\s*(?:de\s*acta)?\s*[:#-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i]),
+    hora: read([/\bhora\s*[:#-]?\s*(\d{1,2}:\d{2}(?::\d{2})?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)?)/i]),
+    numeroAccionControl: read([/\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?(?:acci[oó]n|control)\s*[:#-]?\s*([^\n,;]+)/i]),
+    lugarAccionControl: read([/\blugar\s+(?:de\s+la\s+)?acci[oó]n\s+(?:de\s+control)?\s*[:#-]?\s*([^\n]+)/i]),
+    apellidosNombres: read([/\b(?:apellidos\s+y\s+nombres|nombres\s+y\s+apellidos)\s*[:#-]?\s*([^\n]+)/i]),
+    razonSocial: read([/\b(?:raz[oó]n\s+social|empresa)\s*[:#-]?\s*([^\n]+)/i]),
+    ruc: read([/\bruc\s*[:#-]?\s*(\d{11})/i]),
+    domicilio: read([/\bdomicilio\s*[:#-]?\s*([^\n]+)/i]),
+    empresaTransportista: read([/\bempresa\s+transportista\s*[:#-]?\s*([^\n]+)/i]),
+    tipoVehiculo: read([/\btipo\s+de\s+veh[ií]culo\s*[:#-]?\s*([^\n]+)/i]),
+    matricula: read([/\bmatr[ií]cula\s*[:#-]?\s*([^\n,;]+)/i]),
+    manifiesto: read([/\bmanifiesto\s*[:#-]?\s*([^\n,;]+)/i]),
+    procedencia: read([/\bprocedencia\s*[:#-]?\s*([^\n]+)/i]),
+    destino: read([/\bdestino\s*[:#-]?\s*([^\n]+)/i]),
+    documentoTransporte: read([/\bdocumento\s+de\s+transporte\s*[:#-]?\s*([^\n]+)/i]),
+    regimenOperacionAduanera: read([/\b(?:r[eé]gimen|operaci[oó]n)\s+(?:u\s+operaci[oó]n\s+)?aduanera\s*[:#-]?\s*([^\n]+)/i]),
+    numeroDeclaracion: read([/\b(?:n[uú]mero\s+de\s+)?declaraci[oó]n\s*[:#-]?\s*([^\n,;]+)/i]),
+    fundamentoHecho: read([/\bfundamento\s+de\s+hecho\s*[:#-]?\s*([\s\S]*?)(?=\n\s*fundamento\s+de\s+derecho\s*:|\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i]),
+    fundamentoDerecho: read([/\bfundamento\s+de\s+derecho\s*[:#-]?\s*([\s\S]*?)(?=\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i]),
+    bienes: [],
+    peso: read([/\bpeso\s*[:#-]?\s*([^\n]+)/i]),
+    lugarCustodia: read([/\blugar\s+de\s+custodia(?:\s+o\s+almacenamiento)?\s*[:#-]?\s*([^\n]+)/i]),
+    observaciones: read([/\bobservaciones?\s*[:#-]?\s*([^\n]+)/i]),
+  };
+
+  const itemPattern = /\bbien\s*(\d+)\s*[:#-]\s*([\s\S]*?)(?=\n\s*bien\s*\d+\s*[:#-]|\n\s*(?:peso|lugar de custodia|observaciones)\s*:|$)/gi;
+  for (const match of text.matchAll(itemPattern)) {
+    const content = match[2];
+    const field = (label: string): string => {
+      const result = content.match(new RegExp(`${label}\\s*[:=]\\s*(.*?)(?=\\s+(?:cantidad|unidad(?:\\s+de\\s+medida)?|descripci[oó]n|observaciones)\\s*[:=]|$)`, 'i'));
+      return result?.[1]?.trim() ?? '';
+    };
+    fields.bienes.push({
+      numero: match[1],
+      cantidad: field('cantidad'),
+      unidadMedida: field('unidad(?:\\s+de\\s+medida)?'),
+      descripcion: field('descripci[oó]n'),
+      observaciones: field('observaciones'),
+    });
+  }
+
+  if (fields.bienes.length === 0) {
+    const goodsBlock = text.match(/\b(?:bienes|mercanc[ií]as)\s*:\s*([\s\S]*?)(?=\n\s*(?:peso|lugar de custodia|observaciones)\s*:|$)/i)?.[1] ?? '';
+    fields.bienes = goodsBlock.split(/\r?\n/).map((line, index) => {
+      const parts = line.split('|').map((part) => part.trim());
+      if (parts.length < 3) return null;
+      return {
+        numero: parts[0] || String(index + 1),
+        cantidad: parts[1] ?? '',
+        unidadMedida: parts[2] ?? '',
+        descripcion: parts[3] ?? '',
+        observaciones: parts[4] ?? '',
+      };
+    }).filter(Boolean);
+  }
+
+  return fields;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -293,7 +367,17 @@ function normalizeOllamaResult(value: Record<string, unknown>, text: string): Cl
   const tipoDocumento = isActa
     ? detectActaType(text) ?? classifiedType
     : classifiedType;
-  const campos = { ...extractFields(text), ...asStringRecord(value.campos) };
+  const actaFields = isActa ? extractActaFields(text) : {};
+  const populatedActaFields = Object.fromEntries(
+    Object.entries(actaFields).filter(([key, field]) => (
+      key === 'bienes' ? field.length > 0 : field !== ''
+    )),
+  );
+  const campos = {
+    ...extractFields(text),
+    ...asStringRecord(value.campos),
+    ...populatedActaFields,
+  };
   const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos);
   const informe = asRecord(value.informeEjecutivo);
   const baseReport = createExecutiveReport(tipoDocumento, campos, resumenEjecutivo);
