@@ -89,10 +89,31 @@ describe('POST /generate-document', () => {
 
     const response = await request(app)
       .post('/generate-document')
-      .send({ tipoDocumento: 'ACTA_INMOVILIZACION', datos: {} });
+      .send({
+        tipoDocumento: 'ACTA_INMOVILIZACION',
+        datos: { numeroActa: 'ACT-001', fecha: '2026-10-14' },
+      });
 
     expect(response.status).toBe(500);
     expect(response.body.error).toContain('generar');
+  });
+
+  it('devuelve 400 y no genera PDF cuando los datos del acta son inválidos', async () => {
+    const response = await request(app)
+      .post('/generate-document')
+      .send({
+        tipoDocumento: 'ACTA_INMOVILIZACION',
+        datos: { numeroActa: '', fecha: '2026-02-31', ruc: '123' },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('Datos inválidos');
+    expect(response.body.errores).toEqual(expect.arrayContaining([
+      'Número de acta es requerido',
+      expect.stringContaining('Fecha debe tener formato'),
+      'RUC debe contener exactamente 11 dígitos',
+    ]));
+    expect(generateDocumentMock).not.toHaveBeenCalled();
   });
 
   it('escanea la imagen y genera el PDF en un solo paso', async () => {

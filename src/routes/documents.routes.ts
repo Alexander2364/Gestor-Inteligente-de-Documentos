@@ -1,8 +1,16 @@
 import { Request, Response, Router } from 'express';
 import { mobileUpload, MOBILE_IMAGE_MIMES } from '../middleware/mobileUpload';
+import { validateActa, validateDeclaracion, validateFraccionamiento, ValidationResult } from '../domain/templates/validators';
 import { DocumentFlowError, generateDocument, scanMobileDocument } from '../services/documentFlow.service';
 
 const router = Router();
+
+const DATA_VALIDATORS: Record<string, (datos: Record<string, unknown>) => ValidationResult> = {
+  ACTA_INMOVILIZACION: validateActa,
+  ACTA_INCAUTACION: validateActa,
+  DECLARACION_JURADA_MENSUAL: validateDeclaracion,
+  RESOLUCION_FRACCIONAMIENTO: validateFraccionamiento,
+};
 
 function isDataObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -28,6 +36,14 @@ router.post('/generate-document', async (req: Request, res: Response) => {
 
   if (!isDataObject(datos)) {
     return res.status(400).json({ error: 'datos debe ser un objeto' });
+  }
+
+  const validator = DATA_VALIDATORS[tipoDocumento];
+  if (validator) {
+    const validation = validator(datos);
+    if (!validation.valido) {
+      return res.status(400).json({ error: 'Datos inválidos', errores: validation.errores });
+    }
   }
 
   try {
