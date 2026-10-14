@@ -16,4 +16,23 @@ describe('API de documentos', () => {
 		expect(response.status).toBe(400);
 		expect(response.body.error).toContain('archivo');
 	});
+
+	it('rechaza una captura móvil sin imagen', async () => {
+		const response = await request(app).post('/upload/mobile');
+
+		expect(response.status).toBe(400);
+		expect(response.body.error).toContain('imagen');
+	});
+
+	it('rechaza MIME no permitido en capturas móviles', async () => {
+		const response = await request(app)
+			.post('/upload/mobile')
+			.attach('file', Buffer.from('texto'), {
+				filename: 'nota.txt',
+				contentType: 'text/plain',
+			});
+
+		expect(response.status).toBe(415);
+		expect(response.body.error).toContain('no soportado');
+	});
 });

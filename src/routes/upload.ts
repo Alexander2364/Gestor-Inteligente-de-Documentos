@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { isSupportedMimeType, closeOcrWorker } from '../services/extractor';
+import {
+  extractTextFromPreprocessedImage,
+  isSupportedMimeType,
+  preprocessMobileImage,
+} from '../services/extractor';
+import { classifyWithOllama } from '../services/ia';
 import { enqueueDocument, getDocumentQueue } from '../queues/document.queue';
 import { processDocument } from '../services/document-processing';
 
@@ -10,6 +15,19 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }
 });
+
+const mobileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+const MOBILE_IMAGE_MIMES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/heic',
+  'image/heif',
+]);
 
 router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   console.log('[Upload] 1. Request received:', req.file?.originalname, req.file?.mimetype);
@@ -70,6 +88,34 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     console.error('[Upload] ❌ ERROR FATAL:', err);
     const message = err instanceof Error ? err.message : 'Error interno';
     res.status(500).json({ error: message });
+  }
+});
+
+router.post('/mobile', mobileUpload.single('file'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se envio ninguna imagen' });
+    }
+
+    if (!MOBILE_IMAGE_MIMES.has(req.file.mimetype)) {
+      return res.status(415).json({ error: `Tipo de imagen no soportado: ${req.file.mimetype}` });
+    }
+
+    const processedBuffer = await preprocessMobileImage(req.file.buffer);
+    const text = await extractTextFromPreprocessedImage(processedBuffer);
+    const result = await classifyWithOllama(text);
+
+    return res.json({
+      tipoDocumento: result.tipoDocumento,
+      confianza: result.confianza,
+      campos: result.campos,
+      resumenEjecutivo: result.resumenEjecutivo,
+      templateSugerido: result.tipoDocumento,
+    });
+  } catch (err) {
+    console.error('[Upload Mobile] Error procesando imagen:', err);
+    const message = err instanceof Error ? err.message : 'Error interno procesando imagen';
+    return res.status(500).json({ error: message });
   }
 });
 
