@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Request, Response, Router } from 'express';
+import { getDocumentTemplate } from '../domain/templates';
 import { getTemplatePath } from '../domain/templates/index';
-import { getSupabaseClient } from '../config/supabase';
 import { htmlToPdf } from '../services/documentGenerator.service';
 import { uploadFile } from '../services/storage.service';
+import { saveDocumentoGenerado } from '../services/database.service';
 import { fillTemplate } from '../domain/templates/templateFiller';
 
 const router = Router();
@@ -29,29 +30,18 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'Plantilla no encontrada' });
   }
 
+  const template = getDocumentTemplate(tipoDocumento);
+  if (!template) {
+    return res.status(404).json({ error: 'Metadatos de plantilla no encontrados' });
+  }
+
   try {
     const html = await readFile(templatePath, 'utf8');
     const filledHtml = fillTemplate(html, datos);
     const pdf = await htmlToPdf(filledHtml);
     const key = `generated/${tipoDocumento}/${randomUUID()}.pdf`;
     const url = await uploadFile(pdf, key, 'application/pdf');
-
-    const supabase = getSupabaseClient();
-    const { data: document, error } = await supabase
-      .from('documents')
-      .insert({
-        file_name: `${tipoDocumento}.pdf`,
-        storage_url: url,
-        upload_date: new Date().toISOString(),
-        processing_status: 'completed',
-      })
-      .select('id')
-      .single();
-
-    if (error || !document?.id) {
-      console.error('[Generate Document] Error guardando documento:', error);
-      return res.status(500).json({ error: 'No se pudo guardar el documento' });
-    }
+    const document = await saveDocumentoGenerado(tipoDocumento, template.area, datos, url);
 
     return res.status(201).json({
       url,

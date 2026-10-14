@@ -7,28 +7,25 @@ const {
   fillTemplateMock,
   htmlToPdfMock,
   uploadFileMock,
-  getSupabaseClientMock,
-  insertMock,
-  selectMock,
-  singleMock,
+  saveDocumentoGeneradoMock,
+  getDocumentTemplateMock,
 } = vi.hoisted(() => ({
   getTemplatePathMock: vi.fn(),
   readFileMock: vi.fn(),
   fillTemplateMock: vi.fn(),
   htmlToPdfMock: vi.fn(),
   uploadFileMock: vi.fn(),
-  getSupabaseClientMock: vi.fn(),
-  insertMock: vi.fn(),
-  selectMock: vi.fn(),
-  singleMock: vi.fn(),
+  saveDocumentoGeneradoMock: vi.fn(),
+  getDocumentTemplateMock: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({ readFile: readFileMock }));
 vi.mock('../../src/domain/templates/index', () => ({ getTemplatePath: getTemplatePathMock }));
+vi.mock('../../src/domain/templates', () => ({ getDocumentTemplate: getDocumentTemplateMock }));
 vi.mock('../../src/domain/templates/templateFiller', () => ({ fillTemplate: fillTemplateMock }));
 vi.mock('../../src/services/documentGenerator.service', () => ({ htmlToPdf: htmlToPdfMock }));
 vi.mock('../../src/services/storage.service', () => ({ uploadFile: uploadFileMock }));
-vi.mock('../../src/config/supabase', () => ({ getSupabaseClient: getSupabaseClientMock }));
+vi.mock('../../src/services/database.service', () => ({ saveDocumentoGenerado: saveDocumentoGeneradoMock }));
 
 import { app } from '../../src/app';
 
@@ -36,16 +33,12 @@ describe('POST /generate-document', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getTemplatePathMock.mockReturnValue('/tmp/acta.html');
+    getDocumentTemplateMock.mockReturnValue({ area: 'Prevención del Contrabando' });
     readFileMock.mockResolvedValue('<html>plantilla</html>');
     fillTemplateMock.mockReturnValue('<html>rellenada</html>');
     htmlToPdfMock.mockResolvedValue(Buffer.from('pdf'));
     uploadFileMock.mockResolvedValue('generated/ACTA_INMOVILIZACION/documento.pdf');
-    singleMock.mockResolvedValue({ data: { id: 'documento-123' }, error: null });
-    selectMock.mockReturnValue({ single: singleMock });
-    insertMock.mockReturnValue({ select: selectMock });
-    getSupabaseClientMock.mockReturnValue({
-      from: vi.fn().mockReturnValue({ insert: insertMock }),
-    });
+    saveDocumentoGeneradoMock.mockResolvedValue({ id: 123 });
   });
 
   it('valida tipoDocumento y datos', async () => {
@@ -85,7 +78,7 @@ describe('POST /generate-document', () => {
     expect(response.status).toBe(201);
     expect(response.body).toEqual({
       url: 'generated/ACTA_INMOVILIZACION/documento.pdf',
-      documentoId: 'documento-123',
+      documentoId: 123,
       tipoDocumento: 'ACTA_INMOVILIZACION',
     });
     expect(readFileMock).toHaveBeenCalledWith('/tmp/acta.html', 'utf8');
@@ -96,11 +89,12 @@ describe('POST /generate-document', () => {
       expect.stringMatching(/^generated\/ACTA_INMOVILIZACION\/.*\.pdf$/),
       'application/pdf',
     );
-    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({
-      file_name: 'ACTA_INMOVILIZACION.pdf',
-      storage_url: 'generated/ACTA_INMOVILIZACION/documento.pdf',
-      processing_status: 'completed',
-    }));
+    expect(saveDocumentoGeneradoMock).toHaveBeenCalledWith(
+      'ACTA_INMOVILIZACION',
+      'Prevención del Contrabando',
+      datos,
+      'generated/ACTA_INMOVILIZACION/documento.pdf',
+    );
   });
 
   it('devuelve 500 si falla la conversión a PDF', async () => {
