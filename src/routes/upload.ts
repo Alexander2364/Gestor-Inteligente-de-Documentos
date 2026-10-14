@@ -1,13 +1,10 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import {
-  extractTextFromPreprocessedImage,
-  isSupportedMimeType,
-  preprocessMobileImage,
-} from '../services/extractor';
-import { classifyWithOllama } from '../services/ia';
+import { isSupportedMimeType } from '../services/extractor';
 import { enqueueDocument, getDocumentQueue } from '../queues/document.queue';
 import { processDocument } from '../services/document-processing';
+import { MOBILE_IMAGE_MIMES, mobileUpload } from '../middleware/mobileUpload';
+import { scanMobileDocument } from '../services/documentFlow.service';
 
 const router = Router();
 
@@ -15,19 +12,6 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }
 });
-
-const mobileUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-});
-
-const MOBILE_IMAGE_MIMES = new Set([
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/heic',
-  'image/heif',
-]);
 
 router.post('/', upload.single('file'), async (req: Request, res: Response) => {
   console.log('[Upload] 1. Request received:', req.file?.originalname, req.file?.mimetype);
@@ -101,14 +85,12 @@ router.post('/mobile', mobileUpload.single('file'), async (req: Request, res: Re
       return res.status(415).json({ error: `Tipo de imagen no soportado: ${req.file.mimetype}` });
     }
 
-    const processedBuffer = await preprocessMobileImage(req.file.buffer);
-    const text = await extractTextFromPreprocessedImage(processedBuffer);
-    const result = await classifyWithOllama(text);
+    const result = await scanMobileDocument(req.file.buffer, req.file.mimetype);
 
     return res.json({
       tipoDocumento: result.tipoDocumento,
       confianza: result.confianza,
-      campos: result.campos,
+      campos: result.datos,
       resumenEjecutivo: result.resumenEjecutivo,
       templateSugerido: result.tipoDocumento,
     });

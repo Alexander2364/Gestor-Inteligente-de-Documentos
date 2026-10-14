@@ -45,7 +45,7 @@ export function createApp() {
   app.use('/documents', documentsRouter);
   app.use('/chat', chatRouter);
   app.use('/template', templatesRouter);
-  app.use('/generate-document', documentGenerationRouter);
+  app.use('/', documentGenerationRouter);
 
   // Manejador 404 para rutas no existentes
   app.use((_req: Request, res: Response) => {

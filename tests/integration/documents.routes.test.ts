@@ -2,43 +2,43 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
-  getTemplatePathMock,
-  readFileMock,
-  fillTemplateMock,
-  htmlToPdfMock,
-  uploadFileMock,
-  saveDocumentoGeneradoMock,
-  getDocumentTemplateMock,
+  scanMobileDocumentMock,
+  generateDocumentMock,
 } = vi.hoisted(() => ({
-  getTemplatePathMock: vi.fn(),
-  readFileMock: vi.fn(),
-  fillTemplateMock: vi.fn(),
-  htmlToPdfMock: vi.fn(),
-  uploadFileMock: vi.fn(),
-  saveDocumentoGeneradoMock: vi.fn(),
-  getDocumentTemplateMock: vi.fn(),
+  scanMobileDocumentMock: vi.fn(),
+  generateDocumentMock: vi.fn(),
 }));
 
-vi.mock('node:fs/promises', () => ({ readFile: readFileMock }));
-vi.mock('../../src/domain/templates/index', () => ({ getTemplatePath: getTemplatePathMock }));
-vi.mock('../../src/domain/templates', () => ({ getDocumentTemplate: getDocumentTemplateMock }));
-vi.mock('../../src/domain/templates/templateFiller', () => ({ fillTemplate: fillTemplateMock }));
-vi.mock('../../src/services/documentGenerator.service', () => ({ htmlToPdf: htmlToPdfMock }));
-vi.mock('../../src/services/storage.service', () => ({ uploadFile: uploadFileMock }));
-vi.mock('../../src/services/database.service', () => ({ saveDocumentoGenerado: saveDocumentoGeneradoMock }));
+vi.mock('../../src/services/documentFlow.service', () => ({
+  scanMobileDocument: scanMobileDocumentMock,
+  generateDocument: generateDocumentMock,
+  DocumentFlowError: class DocumentFlowError extends Error {
+    stage: string;
+
+    constructor(stage: string, message: string) {
+      super(message);
+      this.stage = stage;
+    }
+  },
+}));
 
 import { app } from '../../src/app';
+import { DocumentFlowError } from '../../src/services/documentFlow.service';
 
 describe('POST /generate-document', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getTemplatePathMock.mockReturnValue('/tmp/acta.html');
-    getDocumentTemplateMock.mockReturnValue({ area: 'Prevención del Contrabando' });
-    readFileMock.mockResolvedValue('<html>plantilla</html>');
-    fillTemplateMock.mockReturnValue('<html>rellenada</html>');
-    htmlToPdfMock.mockResolvedValue(Buffer.from('pdf'));
-    uploadFileMock.mockResolvedValue('generated/ACTA_INMOVILIZACION/documento.pdf');
-    saveDocumentoGeneradoMock.mockResolvedValue({ id: 123 });
+    scanMobileDocumentMock.mockResolvedValue({
+      tipoDocumento: 'ACTA_INMOVILIZACION',
+      confianza: 0.9,
+      datos: { numeroActa: 'ACT-001' },
+      resumenEjecutivo: 'Acta detectada',
+    });
+    generateDocumentMock.mockResolvedValue({
+      url: 'generated/ACTA_INMOVILIZACION/documento.pdf',
+      documentoId: 123,
+      tipoDocumento: 'ACTA_INMOVILIZACION',
+    });
   });
 
   it('valida tipoDocumento y datos', async () => {
@@ -54,7 +54,7 @@ describe('POST /generate-document', () => {
   });
 
   it('devuelve 404 cuando no existe la plantilla', async () => {
-    getTemplatePathMock.mockReturnValue(null);
+    generateDocumentMock.mockRejectedValue(new DocumentFlowError('template', 'Plantilla no encontrada'));
 
     const response = await request(app)
       .post('/generate-document')
@@ -81,24 +81,11 @@ describe('POST /generate-document', () => {
       documentoId: 123,
       tipoDocumento: 'ACTA_INMOVILIZACION',
     });
-    expect(readFileMock).toHaveBeenCalledWith('/tmp/acta.html', 'utf8');
-    expect(fillTemplateMock).toHaveBeenCalledWith('<html>plantilla</html>', datos);
-    expect(htmlToPdfMock).toHaveBeenCalledWith('<html>rellenada</html>');
-    expect(uploadFileMock).toHaveBeenCalledWith(
-      Buffer.from('pdf'),
-      expect.stringMatching(/^generated\/ACTA_INMOVILIZACION\/.*\.pdf$/),
-      'application/pdf',
-    );
-    expect(saveDocumentoGeneradoMock).toHaveBeenCalledWith(
-      'ACTA_INMOVILIZACION',
-      'Prevención del Contrabando',
-      datos,
-      'generated/ACTA_INMOVILIZACION/documento.pdf',
-    );
+    expect(generateDocumentMock).toHaveBeenCalledWith('ACTA_INMOVILIZACION', datos);
   });
 
   it('devuelve 500 si falla la conversión a PDF', async () => {
-    htmlToPdfMock.mockRejectedValue(new Error('Puppeteer no disponible'));
+    generateDocumentMock.mockRejectedValue(new DocumentFlowError('pdf', 'No se pudo generar el PDF'));
 
     const response = await request(app)
       .post('/generate-document')
@@ -106,5 +93,33 @@ describe('POST /generate-document', () => {
 
     expect(response.status).toBe(500);
     expect(response.body.error).toContain('generar');
+  });
+
+  it('escanea la imagen y genera el PDF en un solo paso', async () => {
+    const response = await request(app)
+      .post('/scan-and-generate')
+      .attach('file', Buffer.from('imagen'), {
+        filename: 'acta.jpg',
+        contentType: 'image/jpeg',
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({
+      tipoDocumento: 'ACTA_INMOVILIZACION',
+      confianza: 0.9,
+      datos: { numeroActa: 'ACT-001' },
+      pdfUrl: 'generated/ACTA_INMOVILIZACION/documento.pdf',
+      documentoId: 123,
+    });
+    expect(scanMobileDocumentMock).toHaveBeenCalledWith(expect.any(Buffer), 'image/jpeg');
+    expect(generateDocumentMock).toHaveBeenCalledWith('ACTA_INMOVILIZACION', { numeroActa: 'ACT-001' });
+  });
+
+  it('rechaza una petición scan-and-generate sin imagen', async () => {
+    const response = await request(app).post('/scan-and-generate');
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('imagen');
+    expect(scanMobileDocumentMock).not.toHaveBeenCalled();
   });
 });
