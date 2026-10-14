@@ -3,6 +3,7 @@ import { classifyWithOllama } from './ia';
 import { DocumentJobData, DocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
 import type { Document, DocumentAnalysis, ExtractedMetadata, DocumentDerivation } from '../types/supabase';
+import { getDestinationEmailByDocumentType } from '../domain/sunat/areas';
 
 const STORAGE_BUCKET = 'DocumentosIA';
 
@@ -197,6 +198,7 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
       resumenEjecutivo: result.resumenEjecutivo,
       informeEjecutivo: result.informeEjecutivo,
       campos: result.campos,
+      correoDestino: getDestinationEmailByDocumentType(result.tipoDocumento),
       remitente: 'ea.luisperez@gmail.com',
       fecha: new Date().toISOString(),
     });
