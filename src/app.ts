@@ -3,6 +3,7 @@ import cors from 'cors';
 import uploadRouter from './routes/upload';
 import documentsRouter from './routes/documents';
 import chatRouter from './routes/chat';
+import templatesRouter from './routes/templates.routes';
 
 export function createApp() {
   const app = express();
@@ -42,6 +43,7 @@ export function createApp() {
   app.use('/upload', uploadRouter);
   app.use('/documents', documentsRouter);
   app.use('/chat', chatRouter);
+  app.use('/template', templatesRouter);
 
   // Manejador 404 para rutas no existentes
   app.use((_req: Request, res: Response) => {
