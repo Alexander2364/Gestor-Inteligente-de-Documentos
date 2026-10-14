@@ -1,5 +1,6 @@
 //1. Imports
 import pdfParse from 'pdf-parse';
+import sharp from 'sharp';
 import { createWorker } from 'tesseract.js';
 import { parseDocx } from './parsers/docx';
 import { parseXlsx } from './parsers/xlsx';
@@ -69,6 +70,19 @@ function normalizeText(text: string): string {
     normalized = normalized.trim();
 
     return normalized;
+}
+
+export async function preprocessMobileImage(buffer: Buffer): Promise<Buffer> {
+    return sharp(buffer)
+        .rotate()
+        .median(3)
+        .grayscale()
+        .normalize()
+        .threshold(180)
+        .grayscale()
+        .toColourspace('b-w')
+        .png()
+        .toBuffer();
 }
 
 //6. Función principal extractText
@@ -144,7 +158,10 @@ async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Pr
     let processedBuffer!: Buffer;
 
     try {
-        processedBuffer = await preprocessImage(buffer);
+        const preprocess = mimeType === 'image/jpeg' || mimeType === 'image/jpg'
+            ? preprocessMobileImage
+            : preprocessImage;
+        processedBuffer = await preprocess(buffer);
     } catch (error) {
         const msg = error instanceof Error ? error.message : 'Error desconocido';
         throw new Error(`Error preprocesando imagen de tipo ${mimeType}: ${msg}`);
