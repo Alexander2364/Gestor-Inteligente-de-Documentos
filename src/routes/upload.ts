@@ -24,8 +24,26 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       return res.status(400).json({ error: `Tipo no soportado: ${req.file.mimetype}` });
     }
 
+    let fileName = req.file.originalname;
+    try {
+      const utf8Name = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      if (!utf8Name.includes('Ã')) fileName = utf8Name;
+    } catch {}
+
+    fileName = fileName
+      .replace(/Ã[\u0080-\u009f]?N/g, 'ÓN')
+      .replace(/Ã“/g, 'Ó')
+      .replace(/Ã\u0093/g, 'Ó')
+      .replace(/Ã¡/g, 'á')
+      .replace(/Ã©/g, 'é')
+      .replace(/Ã­/g, 'í')
+      .replace(/Ã³/g, 'ó')
+      .replace(/Ãº/g, 'ú')
+      .replace(/Ã±/g, 'ñ')
+      .replace(/ÃN/g, 'ÓN');
+
     const jobData = {
-      fileName: req.file.originalname,
+      fileName,
       mimeType: req.file.mimetype,
       fileBase64: req.file.buffer.toString('base64'),
     };
@@ -39,7 +57,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       
       return res.status(202).json({
         jobId: job.id,
-        fileName: req.file.originalname,
+        fileName,
         status: 'pending',
       });
     }

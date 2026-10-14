@@ -32,3 +32,13 @@ documentWorker.on('failed', (job, err) => {
 });
 
 console.log('✅ Document worker is running and listening for jobs...');
+
+// Polling periódico cada 45 segundos para procesar documentos cargados directamente en Supabase (ej. vía email en n8n)
+setInterval(async () => {
+  try {
+    const { processAllPendingDocuments } = await import('../services/document-processing');
+    await processAllPendingDocuments();
+  } catch (err) {
+    // Ignorar errores silenciosamente para no saturar los logs
+  }
+}, 45000);
