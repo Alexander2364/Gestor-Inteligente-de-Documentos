@@ -62,6 +62,35 @@ function isDocumentType(value: unknown): value is SunatDocumentType {
   return typeof value === 'string' && VALID_TYPES.includes(value as SunatDocumentType);
 }
 
+export function detectActaType(
+  text: string,
+): 'ACTA_INMOVILIZACION' | 'ACTA_INCAUTACION' | null {
+  const normalized = text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLocaleUpperCase('es');
+
+  const checked01 = /\[\s*x\s*\]\s*01\b/i.test(normalized)
+    || /\b01\b[^\n]{0,60}\[\s*x\s*\]/i.test(normalized);
+  const checked02 = /\[\s*x\s*\]\s*02\b/i.test(normalized)
+    || /\b02\b[^\n]{0,60}\[\s*x\s*\]/i.test(normalized);
+
+  if (checked01 !== checked02) {
+    return checked01 ? 'ACTA_INMOVILIZACION' : 'ACTA_INCAUTACION';
+  }
+
+  const hasInmovilizacionContext = /\bcustodia\b|\bretenida\b/i.test(normalized);
+  const hasIncautacionContext = /\bcomiso\b|\bincautacion\b/i.test(normalized);
+
+  if (hasInmovilizacionContext !== hasIncautacionContext) {
+    return hasInmovilizacionContext
+      ? 'ACTA_INMOVILIZACION'
+      : 'ACTA_INCAUTACION';
+  }
+
+  return null;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -256,9 +285,14 @@ function parseJsonResponse(raw: string): Record<string, unknown> {
 }
 
 function normalizeOllamaResult(value: Record<string, unknown>, text: string): ClassificationResult {
-  const tipoDocumento = isDocumentType(value.tipoDocumento)
+  const classifiedType = isDocumentType(value.tipoDocumento)
     ? value.tipoDocumento
     : 'DECLARACION_JURADA_MENSUAL';
+  const isActa = classifiedType === 'ACTA_INMOVILIZACION'
+    || classifiedType === 'ACTA_INCAUTACION';
+  const tipoDocumento = isActa
+    ? detectActaType(text) ?? classifiedType
+    : classifiedType;
   const campos = { ...extractFields(text), ...asStringRecord(value.campos) };
   const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos);
   const informe = asRecord(value.informeEjecutivo);
@@ -305,7 +339,8 @@ function classifyByKeywords(text: string): ClassificationResult {
   const best = rules
     .map((rule) => ({ ...rule, score: rule.keywords.filter((keyword) => lowerText.includes(keyword)).length }))
     .sort((left, right) => right.score - left.score)[0];
-  const tipoDocumento = best?.score ? best.tipo : 'DECLARACION_JURADA_MENSUAL';
+  const keywordType = best?.score ? best.tipo : 'DECLARACION_JURADA_MENSUAL';
+  const tipoDocumento = detectActaType(text) ?? keywordType;
   const campos = extractFields(text);
   const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos);
   const report = createExecutiveReport(tipoDocumento, campos, resumenEjecutivo);
