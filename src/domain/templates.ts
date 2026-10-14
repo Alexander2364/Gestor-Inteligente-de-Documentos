@@ -57,6 +57,41 @@ const actaFields: TemplateField[] = [
   { nombre: 'observaciones', label: 'Observaciones', tipo: 'text' },
 ];
 
+const declaracionJuradaMensualFields: TemplateField[] = [
+  { nombre: 'ruc', label: 'RUC', tipo: 'text', requerido: true },
+  { nombre: 'razonSocial', label: 'Razon social', tipo: 'text', requerido: true },
+  { nombre: 'periodo', label: 'Periodo', tipo: 'text', requerido: true },
+  { nombre: 'ingresos', label: 'Total ingresos', tipo: 'text' },
+  { nombre: 'rentaNeta', label: 'Renta neta', tipo: 'text' },
+  { nombre: 'deducciones', label: 'Total deducciones', tipo: 'text' },
+  { nombre: 'tributoDeterminado', label: 'Tributo determinado', tipo: 'text' },
+  { nombre: 'pagosRealizados', label: 'Total pagos', tipo: 'text' },
+  { nombre: 'saldoAPagar', label: 'Saldo a pagar', tipo: 'text' },
+  { nombre: 'saldoAFavor', label: 'Saldo a favor', tipo: 'text' },
+];
+
+const resolucionFraccionamientoFields: TemplateField[] = [
+  { nombre: 'numeroResolucion', label: 'Numero de resolucion', tipo: 'text', requerido: true },
+  { nombre: 'fechaResolucion', label: 'Fecha de resolucion', tipo: 'text', requerido: true },
+  { nombre: 'ruc', label: 'RUC', tipo: 'text' },
+  { nombre: 'razonSocial', label: 'Razon social', tipo: 'text' },
+  { nombre: 'totalDeuda', label: 'Total deuda', tipo: 'text' },
+  { nombre: 'modalidad', label: 'Modalidad', tipo: 'select', opciones: ['FRACCIONAMIENTO', 'APLAZAMIENTO'] },
+  { nombre: 'numeroCuotas', label: 'Numero de cuotas', tipo: 'text' },
+  { nombre: 'fechaVencimiento', label: 'Fecha primer vencimiento', tipo: 'text' },
+  { nombre: 'cronograma', label: 'Cronograma de pagos', tipo: 'array' },
+];
+
+const ordenPagoFields: TemplateField[] = [
+  { nombre: 'numeroOrden', label: 'Numero de orden', tipo: 'text', requerido: true },
+  { nombre: 'fechaEmision', label: 'Fecha de emision', tipo: 'text', requerido: true },
+  { nombre: 'fechaVencimiento', label: 'Fecha de vencimiento', tipo: 'text', requerido: true },
+  { nombre: 'ruc', label: 'RUC', tipo: 'text' },
+  { nombre: 'razonSocial', label: 'Razon social', tipo: 'text' },
+  { nombre: 'deudaExigible', label: 'Deuda exigible', tipo: 'text' },
+  { nombre: 'totalDeuda', label: 'Total a pagar', tipo: 'text' },
+];
+
 export const documentTemplates: Record<string, DocumentTemplate> = {
   ACTA_INMOVILIZACION: {
     tipoDocumento: 'ACTA_INMOVILIZACION',
@@ -67,6 +102,21 @@ export const documentTemplates: Record<string, DocumentTemplate> = {
     tipoDocumento: 'ACTA_INCAUTACION',
     area: 'Prevención del Contrabando',
     campos: actaFields,
+  },
+  DECLARACION_JURADA_MENSUAL: {
+    tipoDocumento: 'DECLARACION_JURADA_MENSUAL',
+    area: 'Intendencia de Recaudacion y Control Masivo',
+    campos: declaracionJuradaMensualFields,
+  },
+  RESOLUCION_FRACCIONAMIENTO: {
+    tipoDocumento: 'RESOLUCION_FRACCIONAMIENTO',
+    area: 'Intendencia de Recaudacion y Control Masivo',
+    campos: resolucionFraccionamientoFields,
+  },
+  ORDEN_PAGO_OP: {
+    tipoDocumento: 'ORDEN_PAGO_OP',
+    area: 'Intendencia de Recaudacion y Control Masivo',
+    campos: ordenPagoFields,
   },
 };
 

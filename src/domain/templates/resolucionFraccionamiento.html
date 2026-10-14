@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resolucion de Fraccionamiento</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #000; margin: 0; padding: 8px; }
+  .documento { max-width: 210mm; margin: 0 auto; }
+  header { margin-bottom: 8px; }
+  .logo-row, .title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .logo-ph { border: 1px dashed #000; width: 160px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; }
+  h1 { font-size: 14px; margin: 6px 0 0; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  section { margin-top: -1px; }
+  th, td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; text-align: left; }
+  th.sec { font-weight: bold; text-transform: uppercase; }
+  th.sec .num { display: inline-block; min-width: 18px; }
+  th.col { font-size: 8.5px; font-weight: bold; text-transform: uppercase; }
+  label { display: block; font-size: 8.5px; font-weight: bold; margin-bottom: 1px; text-transform: uppercase; }
+  input, select, textarea { width: 100%; font: inherit; border: none; border-bottom: 1px dotted #777; background: transparent; padding: 2px; outline: none; }
+  textarea { min-height: 34px; resize: vertical; }
+  input:focus, select:focus, textarea:focus { background: #f2f7ff; }
+  .amount { text-align: right; }
+  .cronograma td { height: 24px; }
+  footer { margin-top: 7px; font-size: 9px; line-height: 1.4; }
+  @media (max-width: 640px) { body { padding: 4px; } table, tbody, tr, th, td { display: block; width: 100% !important; } th, td { border-top-width: 0; } tr { border-top: 1px solid #000; } section { margin-top: 6px; } section table { border: 1px solid #000; } }
+  @media print { body { padding: 0; } input, select, textarea { border-bottom: none; } }
+</style>
+</head>
+<body>
+<form class="documento" onsubmit="return false">
+  <header>
+    <div class="logo-row"><div class="logo-ph">SUNAT</div></div>
+    <div class="title-row"><h1>RESOLUCION DE FRACCIONAMIENTO</h1><strong>N° <input name="numeroResolucion" type="text" style="width:120px" aria-label="Numero de resolucion"></strong></div>
+  </header>
+
+  <section><table>
+    <tr><th class="sec" colspan="4"><span class="num">1</span>IDENTIFICACION DE LA RESOLUCION</th></tr>
+    <tr><td style="width:25%"><label>Numero de resolucion</label><input name="numeroResolucion" type="text"></td><td style="width:25%"><label>Fecha</label><input name="fechaResolucion" type="date"></td><td><label>Tipo de beneficio</label><select name="tipoBeneficio"><option value="">Seleccione</option><option value="FRACCIONAMIENTO">Fraccionamiento</option><option value="APLAZAMIENTO">Aplazamiento</option></select></td><td><label>Condicion</label><input name="condicion" type="text"></td></tr>
+  </table></section>
+
+  <section><table>
+    <tr><th class="sec" colspan="4"><span class="num">2</span>DATOS DEL OBLIGADO</th></tr>
+    <tr><td style="width:22%"><label>RUC</label><input name="ruc" type="text" maxlength="11"></td><td colspan="2"><label>Razon social / nombres</label><input name="razonSocial" type="text"></td><td><label>Tipo de contribuyente</label><input name="tipoContribuyente" type="text"></td></tr>
+    <tr><td colspan="2"><label>Domicilio fiscal</label><input name="domicilioFiscal" type="text"></td><td><label>Representante legal</label><input name="representanteLegal" type="text"></td><td><label>Documento identidad</label><input name="numeroDocumento" type="text"></td></tr>
+  </table></section>
+
+  <section><table>
+    <tr><th class="sec" colspan="4"><span class="num">3</span>DEUDA OBJETO DEL BENEFICIO</th></tr>
+    <tr><td><label>Tributo</label><input name="tributo" type="text"></td><td><label>Periodo</label><input name="periodo" type="text"></td><td><label>Deuda insoluta</label><input name="deudaInsoluta" class="amount" type="number" step="0.01"></td><td><label>Intereses y costas</label><input name="interesesCostas" class="amount" type="number" step="0.01"></td></tr>
+    <tr><td><label>Total deuda</label><input name="totalDeuda" class="amount" type="number" step="0.01"></td><td colspan="3"><label>Concepto y documentos comprendidos</label><textarea name="detalleDeuda"></textarea></td></tr>
+  </table></section>
+
+  <section><table>
+    <tr><th class="sec" colspan="4"><span class="num">4</span>MODALIDAD DE PAGO</th></tr>
+    <tr><td style="width:25%"><label>Modalidad</label><select name="modalidad"><option value="">Seleccione</option><option value="FRACCIONAMIENTO">Fraccionamiento</option><option value="APLAZAMIENTO">Aplazamiento</option></select></td><td><label>Numero de cuotas</label><input name="numeroCuotas" class="amount" type="number"></td><td><label>Cuota inicial</label><input name="cuotaInicial" class="amount" type="number" step="0.01"></td><td><label>Fecha primer vencimiento</label><input name="fechaVencimiento" type="date"></td></tr>
+    <tr><td><label>Interes de fraccionamiento (%)</label><input name="tasaInteres" class="amount" type="number" step="0.01"></td><td colspan="3"><label>Condiciones</label><textarea name="condicionesPago"></textarea></td></tr>
+  </table></section>
+
+  <section><table class="cronograma">
+    <tr><th class="sec" colspan="5"><span class="num">5</span>CRONOGRAMA DE PAGOS</th></tr>
+    <tr><th class="col" style="width:12%">Cuota</th><th class="col" style="width:22%">Vencimiento</th><th class="col">Amortizacion</th><th class="col">Interes</th><th class="col">Total cuota</th></tr>
+    <tr><td><input name="cronograma[0].numeroCuota" type="text"></td><td><input name="cronograma[0].fechaVencimiento" type="date"></td><td><input name="cronograma[0].amortizacion" class="amount" type="number" step="0.01"></td><td><input name="cronograma[0].interes" class="amount" type="number" step="0.01"></td><td><input name="cronograma[0].totalCuota" class="amount" type="number" step="0.01"></td></tr>
+    <tr><td><input name="cronograma[1].numeroCuota" type="text"></td><td><input name="cronograma[1].fechaVencimiento" type="date"></td><td><input name="cronograma[1].amortizacion" class="amount" type="number" step="0.01"></td><td><input name="cronograma[1].interes" class="amount" type="number" step="0.01"></td><td><input name="cronograma[1].totalCuota" class="amount" type="number" step="0.01"></td></tr>
+    <tr><td><input name="cronograma[2].numeroCuota" type="text"></td><td><input name="cronograma[2].fechaVencimiento" type="date"></td><td><input name="cronograma[2].amortizacion" class="amount" type="number" step="0.01"></td><td><input name="cronograma[2].interes" class="amount" type="number" step="0.01"></td><td><input name="cronograma[2].totalCuota" class="amount" type="number" step="0.01"></td></tr>
+    <tr><td><input name="cronograma[3].numeroCuota" type="text"></td><td><input name="cronograma[3].fechaVencimiento" type="date"></td><td><input name="cronograma[3].amortizacion" class="amount" type="number" step="0.01"></td><td><input name="cronograma[3].interes" class="amount" type="number" step="0.01"></td><td><input name="cronograma[3].totalCuota" class="amount" type="number" step="0.01"></td></tr>
+    <tr><td colspan="4" class="amount"><strong>Total programado</strong></td><td><input name="totalProgramado" class="amount" type="number" step="0.01"></td></tr>
+  </table></section>
+  <footer><p>La vigencia del beneficio queda sujeta al cumplimiento de las condiciones y cuotas establecidas.</p><p>Firma y sello de la autoridad: ________________________________</p></footer>
+</form>
+</body>
+</html>
