@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import uploadRouter from './routes/upload';
 import documentsRouter from './routes/documents';
-import chatRouter from './routes/chat'; 
+import chatRouter from './routes/chat';
 
 export function createApp() {
   const app = express();

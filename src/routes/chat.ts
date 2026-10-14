@@ -95,7 +95,7 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
     const tokens = normalizedQuery.split(/\s+/).filter(t => t.length > 2);
 
     // Detectar si es una pregunta general o de listado
-    const isGeneralQuery = tokens.length === 0 || 
+    const isGeneralQuery = tokens.length === 0 ||
       /^(hola|buen|que tal|documentos|que hay|cuales|resumen|todos|listar|mostrar|ayuda)/i.test(query.trim());
 
     if (isGeneralQuery) {
@@ -142,7 +142,7 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
         const ext = (topDoc.file_name.split('.').pop() || '').toLowerCase();
         const storagePath = `${topDoc.id}.${ext}`;
         const { data: fileBlob } = await supabase.storage.from(STORAGE_BUCKET).download(storagePath);
-        
+
         if (fileBlob) {
           const buffer = Buffer.from(await fileBlob.arrayBuffer());
           let mime: SupportedMimeType = 'application/pdf';
