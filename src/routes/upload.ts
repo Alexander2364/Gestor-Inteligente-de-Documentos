@@ -1,8 +1,10 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { isSupportedMimeType, closeOcrWorker } from '../services/extractor';
+import { isSupportedMimeType } from '../services/extractor';
 import { enqueueDocument, getDocumentQueue } from '../queues/document.queue';
 import { processDocument } from '../services/document-processing';
+import { MOBILE_IMAGE_MIMES, mobileUpload } from '../middleware/mobileUpload';
+import { scanMobileDocument } from '../services/documentFlow.service';
 
 const router = Router();
 
@@ -70,6 +72,32 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     console.error('[Upload] ❌ ERROR FATAL:', err);
     const message = err instanceof Error ? err.message : 'Error interno';
     res.status(500).json({ error: message });
+  }
+});
+
+router.post('/mobile', mobileUpload.single('file'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se envio ninguna imagen' });
+    }
+
+    if (!MOBILE_IMAGE_MIMES.has(req.file.mimetype)) {
+      return res.status(415).json({ error: `Tipo de imagen no soportado: ${req.file.mimetype}` });
+    }
+
+    const result = await scanMobileDocument(req.file.buffer, req.file.mimetype);
+
+    return res.json({
+      tipoDocumento: result.tipoDocumento,
+      confianza: result.confianza,
+      campos: result.datos,
+      resumenEjecutivo: result.resumenEjecutivo,
+      templateSugerido: result.tipoDocumento,
+    });
+  } catch (err) {
+    console.error('[Upload Mobile] Error procesando imagen:', err);
+    const message = err instanceof Error ? err.message : 'Error interno procesando imagen';
+    return res.status(500).json({ error: message });
   }
 });
 

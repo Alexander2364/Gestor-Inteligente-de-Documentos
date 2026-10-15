@@ -4,7 +4,7 @@ export const CLASSIFIER_PROMPT = `Eres un analista documental de SUNAT. Lee el t
 No inventes datos: usa una cadena vacía o un arreglo vacío cuando un dato no aparezca.
 Devuelve SOLO un objeto JSON válido, sin markdown ni comentarios.
 
-TIPOS (15):
+TIPOS (17):
 1. SOLICITUD_INSCRIPCION_RUC
 2. ACTUALIZACION_RUC
 3. DECLARACION_JURADA_MENSUAL
@@ -20,6 +20,19 @@ TIPOS (15):
 13. NOTIFICACION_ELECTRONICA
 14. SOLICITUD_APLAZAMIENTO
 15. RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO
+16. ACTA_INMOVILIZACION
+17. ACTA_INCAUTACION
+
+REGLAS PARA ACTAS ADUANERAS:
+1. Si el documento contiene "ACTA DE INMOVILIZACIÓN - INCAUTACIÓN" y está marcada la opción "01 INMOVILIZACIÓN", clasifica como ACTA_INMOVILIZACION.
+2. Si el documento contiene "ACTA DE INMOVILIZACIÓN - INCAUTACIÓN" y está marcada la opción "02 INCAUTACIÓN", clasifica como ACTA_INCAUTACION.
+3. Prioriza la opción marcada del formulario sobre el título del documento.
+4. Usa la custodia, inmovilización o retención de la mercancía como información complementaria, sin sustituir la opción marcada.
+
+Para las actas, extrae también número de acta, tipo de acción, fecha, hora, acción de control, identificación del intervenido, datos de identidad, domicilio, razón social, RUC, transporte, manifiesto, procedencia, destino, documento de transporte, régimen aduanero, declaración, fundamentos, bienes, peso, lugar de custodia, servidores, representantes y entrega al almacén.
+
+Cada bien debe conservarse como un elemento del arreglo bienes con esta estructura:
+{"numero":"","cantidad":"","unidadMedida":"","descripcion":"","observaciones":""}
 
 REGLAS DE PRIORIDAD (ORDEN ESTRICTO):
 1. "Formulario 2119" + ("Inscripción al RUC" | "Inscripción al RUC" | "Solicitud de Inscripción") → SOLICITUD_INSCRIPCION_RUC
@@ -44,7 +57,7 @@ DIFERENCIADORES CLAVE:
 - ORDEN_PAGO_OP: "Orden de Pago" + "OP-" + "Deuda Exigible" + "Vencimiento" + "Total Deuda"
 
 El JSON debe tener exactamente esta estructura base:
-{"tipoDocumento":"DECLARACION_JURADA_MENSUAL","confianza":0.95,"campos":{"ruc":"","periodo":"","ingresos":"","rentaNeta":"","saldoAPagar":"","totalDeuda":"","fechaVencimiento":"","numeroCuotas":""},"resumenEjecutivo":"Resumen factual en español, con deudor, periodo, montos, vencimientos y acción requerida.","informeEjecutivo":{"tipoInforme":"DECLARACION_JURADA_MENSUAL","contexto":"Por qué el documento importa para el área destinataria.","identificacion":{},"datosClave":{},"analisisRiesgo":{},"analisisCumplimiento":{},"urgencia":"","alertas":[],"accionesRequeridas":[]}}
+{"tipoDocumento":"DECLARACION_JURADA_MENSUAL","confianza":0.95,"campos":{"ruc":"","periodo":"","ingresos":"","rentaNeta":"","saldoAPagar":"","totalDeuda":"","fechaVencimiento":"","numeroCuotas":"","numeroActa":"","tipoAccion":"","fecha":"","hora":"","numeroAccionControl":"","lugarAccionControl":"","nombreAccionControl":"","formaIdentificacion":"","tipoPersona":"","apellidosNombres":"","tipoDocumentoIdentidad":"","numeroDocumentoIdentidad":"","domicilio":"","razonSocial":"","empresaTransportista":"","tipoVehiculo":"","matricula":"","manifiesto":"","procedencia":"","destino":"","documentoTransporte":"","regimenOperacionAduanera":"","numeroDeclaracion":"","fechaDeclaracion":"","fundamentoHecho":"","fundamentoDerecho":"","bienes":[],"peso":"","lugarCustodia":"","observaciones":""},"resumenEjecutivo":"Resumen factual en español, con deudor, periodo, montos, vencimientos y acción requerida. En actas, incluir tipo, número, fecha, lugar, intervenido, mercancía, cantidad, peso, custodia y observaciones verificables.","informeEjecutivo":{"tipoInforme":"DECLARACION_JURADA_MENSUAL","contexto":"Por qué el documento importa para el área destinataria.","identificacion":{},"datosClave":{},"analisisRiesgo":{},"analisisCumplimiento":{},"urgencia":"","alertas":[],"accionesRequeridas":[]}}
 
 El resumen debe ser ejecutivo y verificable: identificar al contribuyente, indicar importes y fechas relevantes, señalar inconsistencias o riesgos, y mencionar la acción siguiente. No confundas tributo calculado con saldo a pagar. La confianza debe estar entre 0 y 1.
 
