@@ -2,9 +2,10 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { isSupportedMimeType } from '../services/extractor';
 import { enqueueDocument, getDocumentQueue } from '../queues/document.queue';
-import { processDocument } from '../services/document-processing';
+import { notifyN8n, processDocument } from '../services/document-processing';
 import { MOBILE_IMAGE_MIMES, mobileUpload } from '../middleware/mobileUpload';
-import { scanMobileDocument } from '../services/documentFlow.service';
+import { DocumentFlowError, generateDocument, scanMobileDocument } from '../services/documentFlow.service';
+import { validateDocumentData } from '../domain/templates/validators';
 
 const router = Router();
 
@@ -86,6 +87,23 @@ router.post('/mobile', mobileUpload.single('file'), async (req: Request, res: Re
     }
 
     const result = await scanMobileDocument(req.file.buffer, req.file.mimetype);
+    const validation = validateDocumentData(result.tipoDocumento, result.datos);
+    if (!validation.valido) {
+      return res.status(400).json({ error: 'Datos inválidos', errores: validation.errores, etapa: 'validation' });
+    }
+    const generated = await generateDocument(result.tipoDocumento, result.datos);
+
+    await notifyN8n({
+      event: 'DOCUMENTO_ANALIZADO',
+      documentId: generated.documentoId,
+      fileName: `${result.tipoDocumento}.pdf`,
+      storageUrl: generated.url,
+      tipoDocumento: result.tipoDocumento,
+      confianza: result.confianza,
+      campos: result.datos,
+      resumenEjecutivo: result.resumenEjecutivo,
+      fecha: new Date().toISOString(),
+    });
 
     return res.json({
       tipoDocumento: result.tipoDocumento,
@@ -93,9 +111,17 @@ router.post('/mobile', mobileUpload.single('file'), async (req: Request, res: Re
       campos: result.datos,
       resumenEjecutivo: result.resumenEjecutivo,
       templateSugerido: result.tipoDocumento,
+      pdfUrl: generated.url,
+      documentId: generated.documentoId,
     });
   } catch (err) {
     console.error('[Upload Mobile] Error procesando imagen:', err);
+    if (err instanceof DocumentFlowError) {
+      return res.status(err.stage === 'template' ? 404 : 500).json({
+        error: err.message,
+        etapa: err.stage,
+      });
+    }
     const message = err instanceof Error ? err.message : 'Error interno procesando imagen';
     return res.status(500).json({ error: message });
   }
