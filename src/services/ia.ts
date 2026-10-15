@@ -102,7 +102,10 @@ export function extractActaFields(text: string): Record<string, any> {
 
   const type = detectActaType(text);
   const fields: Record<string, any> = {
-    numeroActa: read([/\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?acta\s*[:#-]?\s*([^\n,;]+)/i]),
+    numeroActa: read([
+      /\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?acta\s*[:#-]?\s*([^\n,;]+)/i,
+      /\bacta\s*(?:n[uú]mero|nro\.?|n[°º])\s*[:#-]?\s*([^\n,;]+)/i,
+    ]),
     tipoAccion: type === 'ACTA_INMOVILIZACION'
       ? 'INMOVILIZACION'
       : type === 'ACTA_INCAUTACION' ? 'INCAUTACION' : '',
