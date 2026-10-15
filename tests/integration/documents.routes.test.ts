@@ -31,7 +31,7 @@ describe('POST /generate-document', () => {
     scanMobileDocumentMock.mockResolvedValue({
       tipoDocumento: 'ACTA_INMOVILIZACION',
       confianza: 0.9,
-      datos: { numeroActa: 'ACT-001' },
+      datos: { numeroActa: 'ACT-001', fecha: '2026-10-14' },
       resumenEjecutivo: 'Acta detectada',
     });
     generateDocumentMock.mockResolvedValue({
@@ -128,12 +128,15 @@ describe('POST /generate-document', () => {
     expect(response.body).toEqual({
       tipoDocumento: 'ACTA_INMOVILIZACION',
       confianza: 0.9,
-      datos: { numeroActa: 'ACT-001' },
+      datos: { numeroActa: 'ACT-001', fecha: '2026-10-14' },
       pdfUrl: 'generated/ACTA_INMOVILIZACION/documento.pdf',
       documentoId: 123,
     });
     expect(scanMobileDocumentMock).toHaveBeenCalledWith(expect.any(Buffer), 'image/jpeg');
-    expect(generateDocumentMock).toHaveBeenCalledWith('ACTA_INMOVILIZACION', { numeroActa: 'ACT-001' });
+    expect(generateDocumentMock).toHaveBeenCalledWith('ACTA_INMOVILIZACION', {
+      numeroActa: 'ACT-001',
+      fecha: '2026-10-14',
+    });
   });
 
   it('rechaza una petición scan-and-generate sin imagen', async () => {

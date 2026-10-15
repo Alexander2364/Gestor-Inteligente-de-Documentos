@@ -149,3 +149,14 @@ export function validateFraccionamiento(datos: Datos): ValidationResult {
 
   return result(errores);
 }
+
+export const DATA_VALIDATORS: Record<string, (datos: Datos) => ValidationResult> = {
+  ACTA_INMOVILIZACION: validateActa,
+  ACTA_INCAUTACION: validateActa,
+  DECLARACION_JURADA_MENSUAL: validateDeclaracion,
+  RESOLUCION_FRACCIONAMIENTO: validateFraccionamiento,
+};
+
+export function validateDocumentData(tipoDocumento: string, datos: Datos): ValidationResult {
+  return DATA_VALIDATORS[tipoDocumento]?.(datos) ?? result([]);
+}
