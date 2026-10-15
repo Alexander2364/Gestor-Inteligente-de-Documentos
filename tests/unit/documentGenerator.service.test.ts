@@ -52,6 +52,20 @@ describe('htmlToPdf', () => {
     expect(browser.close).toHaveBeenCalledOnce();
   });
 
+  it('usa la ruta de Chromium configurada cuando está disponible', async () => {
+    process.env.PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium';
+
+    await htmlToPdf('<h1>Acta</h1>');
+
+    expect(puppeteer.launch).toHaveBeenCalledWith({
+      headless: true,
+      executablePath: '/usr/bin/chromium',
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
+    delete process.env.PUPPETEER_EXECUTABLE_PATH;
+  });
+
   it('cierra el browser cuando la generación del PDF falla', async () => {
     const error = new Error('No se pudo generar el PDF');
     page.pdf.mockRejectedValue(error);

@@ -1,13 +1,17 @@
 import { getSupabaseClient } from '../config/supabase';
 
 export interface DocumentoGenerado {
-  id: number;
-  tipo_documento: string;
-  area: string;
-  datos_json: Record<string, unknown>;
-  pdf_url: string;
-  fecha_generacion: string;
-  usuario?: string | null;
+  id: string;
+  file_name: string;
+  storage_url: string;
+  upload_date: string;
+  processing_status: 'pending' | 'processing' | 'completed' | 'failed';
+}
+
+function getFileName(pdfUrl: string, tipoDocumento: string): string {
+  const path = pdfUrl.split('?')[0];
+  const fileName = path.split('/').pop();
+  return fileName || `${tipoDocumento}.pdf`;
 }
 
 export async function saveDocumentoGenerado(
@@ -18,13 +22,11 @@ export async function saveDocumentoGenerado(
   usuario?: string,
 ): Promise<DocumentoGenerado> {
   const { data, error } = await getSupabaseClient()
-    .from('documentos_generados')
+    .from('documents')
     .insert({
-      tipo_documento: tipoDocumento,
-      area,
-      datos_json: datos,
-      pdf_url: pdfUrl,
-      ...(usuario ? { usuario } : {}),
+      file_name: getFileName(pdfUrl, tipoDocumento),
+      storage_url: pdfUrl,
+      processing_status: 'completed',
     })
     .select()
     .single();

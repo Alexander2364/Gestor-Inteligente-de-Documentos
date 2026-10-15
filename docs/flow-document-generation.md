@@ -1,6 +1,6 @@
 # Flujo de generación de documentos
 
-Este documento describe el flujo móvil completo para convertir una fotografía de un acta SUNAT en un PDF rellenado y almacenarlo en MinIO/S3.
+Este documento describe el flujo móvil completo para convertir una fotografía de un acta SUNAT en un PDF rellenado y almacenarlo en el bucket público `DocumentosIA` de Supabase Storage.
 
 ## Flujo completo
 
@@ -17,7 +17,7 @@ flowchart LR
     I --> J[Lectura de HTML]
     J --> K[fillTemplate]
     K --> L[htmlToPdf / Puppeteer]
-    L --> M[uploadFile / MinIO-S3]
+    L --> M[uploadFile / Supabase Storage]
     M --> N[documentos_generados / PostgreSQL]
     N --> O[URL o key del PDF + documentoId]
 ```
@@ -187,7 +187,7 @@ curl -X POST http://localhost:3000/generate-document \
 }
 ```
 
-`url` contiene la key almacenada en MinIO/S3. El servicio de storage devuelve la key, no una URL HTTP pública. `documentoId` es el `id` serial de `documentos_generados`.
+`url` contiene la URL pública del PDF almacenado en el bucket `DocumentosIA` de Supabase Storage. `documentoId` es el UUID de la fila creada en `documents`.
 
 ### Errores
 
@@ -236,41 +236,16 @@ SUPABASE_SECRET_KEY=tu_service_role_key
 SUPABASE_PUBLISHABLE_KEY=tu_publishable_key
 ```
 
-La migración `src/db/migrations/20261014_create_documentos_generados.sql` debe aplicarse antes de usar `POST /generate-document`.
+La tabla `documents` debe existir antes de usar `POST /generate-document`. El servicio registra el PDF en esa tabla con `storage_url`, `file_name` y `processing_status = completed`.
 
-### MinIO/S3
+### Supabase Storage
 
 ```dotenv
-S3_ENDPOINT=http://localhost:9000
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin
-S3_BUCKET=documentos
+SUPABASE_URL=https://tu-proyecto.supabase.co
+SUPABASE_SECRET_KEY=tu_service_role_key
 ```
 
-La URL depende de dónde se ejecute el backend:
-
-- Backend en el host: `http://localhost:9000`.
-- Backend dentro de Docker Compose: `http://minio:9000`.
-
-No expongas `S3_SECRET_KEY` ni `SUPABASE_SECRET_KEY` al frontend ni los confirmes en Git.
-
-## Configurar MinIO con Docker
-
-El `docker-compose.yml` de la raíz define el servicio `minio`, los puertos y el volumen persistente:
-
-```yaml
-minio:
-  image: minio/minio:latest
-  ports:
-    - "9000:9000"
-    - "9001:9001"
-  environment:
-    MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
-    MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
-  volumes:
-    - minio_data:/data
-  command: server /data --console-address ":9001"
-```
+El backend usa `SUPABASE_SECRET_KEY` únicamente en el servidor para subir el archivo y genera la URL pública mediante `getPublicUrl`. No expongas esta clave al frontend ni la confirmes en Git.
 
 1. Copia el ejemplo de entorno y completa las credenciales de Supabase:
 
@@ -278,49 +253,17 @@ minio:
    cp .env.example .env
    ```
 
-2. Inicia MinIO:
+2. En Supabase, abre **Storage**, crea o verifica el bucket público `DocumentosIA` y confirma que el límite de archivo permita PDFs de hasta 50 MB.
 
    ```bash
-   docker compose up -d minio
+  docker compose up -d --build
    ```
-
-3. Abre la consola en [http://localhost:9001](http://localhost:9001) e inicia sesión con `S3_ACCESS_KEY` y `S3_SECRET_KEY`.
-
-4. Crea el bucket `documentos`, o usa el cliente `mc`:
-
-   ```bash
-   mc alias set local http://localhost:9000 minioadmin minioadmin
-   mc mb --ignore-existing local/documentos
-   ```
-
-5. Si el backend también se ejecuta con Compose, inicia el stack completo:
-
-   ```bash
-   docker compose up -d --build
-   ```
-
-Dentro del stack, `backend-api` y `backend-worker` usan `http://minio:9000`; desde una aplicación ejecutada directamente en el host se usa `http://localhost:9000`.
 
 ## Errores comunes
 
-### `ECONNREFUSED` al conectar con MinIO
+### `Bucket not found` o error de Storage
 
-Comprueba que el contenedor está activo:
-
-```bash
-docker compose ps minio
-docker compose logs minio
-```
-
-Verifica también que `S3_ENDPOINT` sea `http://minio:9000` dentro de Docker y `http://localhost:9000` fuera de Docker.
-
-### `The specified bucket does not exist`
-
-El contenedor de MinIO no crea automáticamente el bucket configurado. Créalo desde la consola en el puerto `9001` o ejecuta `mc mb --ignore-existing local/documentos`.
-
-### Faltan variables de S3
-
-`uploadFile` exige `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` y `S3_BUCKET`. Revisa `.env`, reinicia el backend y confirma que Compose esté pasando las variables al servicio.
+Verifica en Supabase que el bucket se llame exactamente `DocumentosIA`, sea público y que `SUPABASE_URL` y `SUPABASE_SECRET_KEY` estén disponibles en el backend.
 
 ### `Plantilla no encontrada`
 

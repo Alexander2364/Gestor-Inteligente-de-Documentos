@@ -27,7 +27,7 @@ export interface ScannedDocument {
 
 export interface GeneratedDocument {
   url: string;
-  documentoId: number;
+  documentoId: string;
   tipoDocumento: string;
 }
 

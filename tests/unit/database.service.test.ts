@@ -19,13 +19,11 @@ describe('saveDocumentoGenerado', () => {
     vi.clearAllMocks();
     singleMock.mockResolvedValue({
       data: {
-        id: 42,
-        tipo_documento: 'ACTA_INMOVILIZACION',
-        area: 'Prevención del Contrabando',
-        datos_json: { numeroActa: 'ACT-001' },
-        pdf_url: 'generated/acta.pdf',
-        fecha_generacion: '2026-10-14T23:00:00.000Z',
-        usuario: null,
+        id: '8d8c3d71-0b34-4a1b-91ad-2f6c4d6f3e14',
+        file_name: 'acta.pdf',
+        storage_url: 'https://demo.supabase.co/storage/v1/object/public/DocumentosIA/acta.pdf',
+        upload_date: '2026-10-14T23:00:00.000Z',
+        processing_status: 'completed',
       },
       error: null,
     });
@@ -46,14 +44,12 @@ describe('saveDocumentoGenerado', () => {
       'usuario-1',
     );
 
-    expect(result.id).toBe(42);
-    expect(fromMock).toHaveBeenCalledWith('documentos_generados');
+    expect(result.id).toBe('8d8c3d71-0b34-4a1b-91ad-2f6c4d6f3e14');
+    expect(fromMock).toHaveBeenCalledWith('documents');
     expect(insertMock).toHaveBeenCalledWith({
-      tipo_documento: 'ACTA_INMOVILIZACION',
-      area: 'Prevención del Contrabando',
-      datos_json: datos,
-      pdf_url: 'generated/acta.pdf',
-      usuario: 'usuario-1',
+      file_name: 'acta.pdf',
+      storage_url: 'generated/acta.pdf',
+      processing_status: 'completed',
     });
   });
 
