@@ -30,6 +30,7 @@ REGLAS PARA ACTAS ADUANERAS:
 4. Usa la custodia, inmovilización o retención de la mercancía como información complementaria, sin sustituir la opción marcada.
 
 Para las actas, extrae también número de acta, tipo de acción, fecha, hora, acción de control, identificación del intervenido, datos de identidad, domicilio, razón social, RUC, transporte, manifiesto, procedencia, destino, documento de transporte, régimen aduanero, declaración, fundamentos, bienes, peso, lugar de custodia, servidores, representantes y entrega al almacén.
+En "peso" y en "cantidad" de cada bien devuelve únicamente el número (con punto decimal y sin unidades, monedas ni etiquetas); por ejemplo "3.10", no "3.10 Y:".
 
 Cada bien debe conservarse como un elemento del arreglo bienes con esta estructura:
 {"numero":"","cantidad":"","unidadMedida":"","descripcion":"","observaciones":""}
@@ -66,8 +67,30 @@ Texto (máx 2500 chars):
 {text}
 ---`;
 
-export function buildClassifierPrompt(text: string): string {
+/**
+ * Variante compacta del prompt para el flujo de escaneo con cámara (hardware sin GPU).
+ * Pide solo tipoDocumento, confianza, campos y resumenEjecutivo: se omite la clave
+ * `informeEjecutivo`, que el backend reconstruye localmente en `normalizeOllamaResult`
+ * a partir de `createExecutiveReport`. Así el modelo genera muchos menos tokens y
+ * termina dentro del timeout en vez de divagar hasta los 10 minutos.
+ */
+const COMPACT_SCHEMA = '{"tipoDocumento":"DECLARACION_JURADA_MENSUAL","confianza":0.95,"campos":{"ruc":"","periodo":"","ingresos":"","rentaNeta":"","saldoAPagar":"","totalDeuda":"","fechaVencimiento":"","numeroCuotas":"","numeroActa":"","tipoAccion":"","fecha":"","hora":"","numeroAccionControl":"","lugarAccionControl":"","nombreAccionControl":"","formaIdentificacion":"","tipoPersona":"","apellidosNombres":"","tipoDocumentoIdentidad":"","numeroDocumentoIdentidad":"","domicilio":"","razonSocial":"","empresaTransportista":"","tipoVehiculo":"","matricula":"","manifiesto":"","procedencia":"","destino":"","documentoTransporte":"","regimenOperacionAduanera":"","numeroDeclaracion":"","fechaDeclaracion":"","fundamentoHecho":"","fundamentoDerecho":"","bienes":[],"peso":"","lugarCustodia":"","observaciones":""},"resumenEjecutivo":"Resumen factual breve en español."}';
+
+const COMPACT_CLASSIFIER_PROMPT = CLASSIFIER_PROMPT.replace(
+  /\{"tipoDocumento"[\s\S]*?"accionesRequeridas":\[\]\}\}/,
+  COMPACT_SCHEMA,
+);
+
+function renderPrompt(template: string, text: string): string {
   const maxChars = 12000;
   const trimmedText = text.length > maxChars ? text.slice(0, maxChars) + '...' : text;
-  return CLASSIFIER_PROMPT.replace('{text}', trimmedText);
+  return template.replace('{text}', trimmedText);
+}
+
+export function buildClassifierPrompt(text: string): string {
+  return renderPrompt(CLASSIFIER_PROMPT, text);
+}
+
+export function buildCompactClassifierPrompt(text: string): string {
+  return renderPrompt(COMPACT_CLASSIFIER_PROMPT, text);
 }

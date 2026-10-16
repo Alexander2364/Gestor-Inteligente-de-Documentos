@@ -192,19 +192,19 @@
     <div class="title-row">
       <h1>ACTA DE INMOVILIZACIÓN - INCAUTACIÓN N°</h1>
       <div class="nro-acta">
-        <input type="text" aria-label="Código 1" maxlength="3"> -
-        <input type="text" aria-label="Código 2" maxlength="4"> -
-        <input type="text" aria-label="Año" maxlength="4"> -
+        <input type="text" name="actaCodigo1" aria-label="Código 1" maxlength="3"> -
+        <input type="text" name="actaCodigo2" aria-label="Código 2" maxlength="4"> -
+        <input type="text" name="actaAnio" aria-label="Año" maxlength="4"> -
         <span>N°</span>
-        <input type="text" class="n-largo" aria-label="Número correlativo">
+        <input type="text" name="numeroAccionControl" class="n-largo" aria-label="Número correlativo">
       </div>
     </div>
     <div class="accion-row">
       <div class="accion-tipo">
-        <select aria-label="Tipo de acción">
+        <select name="tipoAccion" aria-label="Tipo de acción">
           <option value=""></option>
-          <option value="01">01</option>
-          <option value="02">02</option>
+          <option value="INMOVILIZACION">01</option>
+          <option value="INCAUTACION">02</option>
         </select>
         <div class="leyenda">01 INMOVILIZACIÓN<br>02 INCAUTACIÓN</div>
       </div>
@@ -220,11 +220,11 @@
     <table>
       <tr><th class="sec" colspan="5"><span class="num">1</span>DATOS GENERALES DE LA ACCIÓN DE CONTROL O FISCALIZACIÓN</th></tr>
       <tr>
-        <td style="width:16%"><label>1.1 Fecha</label><input type="date"></td>
-        <td style="width:12%"><label>1.2 Hora</label><input type="time"></td>
-        <td style="width:12%"><label>1.3 Acción</label><input type="text"></td>
-        <td style="width:30%"><label>1.4 Lugar de la acción de control</label><input type="text"></td>
-        <td style="width:30%"><label>1.5 Nombre de la acción de control</label><input type="text"></td>
+        <td style="width:16%"><label>1.1 Fecha</label><input type="text" name="fecha"></td>
+        <td style="width:12%"><label>1.2 Hora</label><input type="time" name="hora"></td>
+        <td style="width:12%"><label>1.3 Acción</label><input type="text" name="tipoAccion"></td>
+        <td style="width:30%"><label>1.4 Lugar de la acción de control</label><input type="text" name="lugarAccionControl"></td>
+        <td style="width:30%"><label>1.5 Nombre de la acción de control</label><input type="text" name="nombreAccionControl"></td>
       </tr>
     </table>
   </section>
@@ -234,18 +234,18 @@
     <table>
       <tr><th class="sec" colspan="4"><span class="num">2</span>IDENTIFICACIÓN DEL INTERVENIDO O RESPONSABLE DE LOS BIENES</th></tr>
       <tr>
-        <td style="width:20%"><label>2.1 Forma identificación</label><input type="text"></td>
-        <td style="width:20%"><label>2.2 Tipo de persona</label><input type="text"></td>
-        <td colspan="2"><label>2.3 Apellidos y nombres</label><input type="text"></td>
+        <td style="width:20%"><label>2.1 Forma identificación</label><input type="text" name="formaIdentificacion"></td>
+        <td style="width:20%"><label>2.2 Tipo de persona</label><input type="text" name="tipoPersona"></td>
+        <td colspan="2"><label>2.3 Apellidos y nombres</label><input type="text" name="apellidosNombres"></td>
       </tr>
       <tr>
-        <td><label>2.4 Tipo doc.</label><input type="text"></td>
-        <td><label>2.5 N° documento identidad</label><input type="text"></td>
-        <td colspan="2"><label>2.6 Domicilio (Calle, Av., Jr. / N° / Interior ó Dpto. / Urb. Distr./Prov./Dpto.)</label><input type="text"></td>
+        <td><label>2.4 Tipo doc.</label><input type="text" name="tipoDocumentoIdentidad"></td>
+        <td><label>2.5 N° documento identidad</label><input type="text" name="numeroDocumentoIdentidad"></td>
+        <td colspan="2"><label>2.6 Domicilio (Calle, Av., Jr. / N° / Interior ó Dpto. / Urb. Distr./Prov./Dpto.)</label><input type="text" name="domicilio"></td>
       </tr>
       <tr>
-        <td colspan="3"><label>2.7 Nombre / Razón social</label><input type="text"></td>
-        <td><label>2.8 RUC</label><input type="text" maxlength="11"></td>
+        <td colspan="3"><label>2.7 Nombre / Razón social</label><input type="text" name="razonSocial"></td>
+        <td><label>2.8 RUC</label><input type="text" name="ruc" maxlength="11"></td>
       </tr>
     </table>
   </section>
@@ -258,19 +258,19 @@
         <th class="sec" colspan="2"><span class="num">4</span>DATOS DEL DESPACHO ADUANERO</th>
       </tr>
       <tr>
-        <td style="width:23%"><label>3.1 Empresa transportista</label><input type="text"></td>
-        <td style="width:14%"><label>3.2 T. veh.</label><input type="text"></td>
-        <td style="width:20%"><label>3.3 Matrícula</label><input type="text"></td>
-        <td colspan="2"><label>4.1 Régimen u operación aduanera</label><input type="text"></td>
+        <td style="width:23%"><label>3.1 Empresa transportista</label><input type="text" name="empresaTransportista"></td>
+        <td style="width:14%"><label>3.2 T. veh.</label><input type="text" name="tipoVehiculo"></td>
+        <td style="width:20%"><label>3.3 Matrícula</label><input type="text" name="matricula"></td>
+        <td colspan="2"><label>4.1 Régimen u operación aduanera</label><input type="text" name="regimenOperacionAduanera"></td>
       </tr>
       <tr>
-        <td colspan="3"><label>3.4 Manifiesto</label><input type="text"></td>
-        <td colspan="2" rowspan="2"><label>4.2 N° Declaración</label><input type="text">
-          <label style="margin-top:6px">4.3 Fecha</label><input type="date"></td>
+        <td colspan="3"><label>3.4 Manifiesto</label><input type="text" name="manifiesto"></td>
+        <td colspan="2" rowspan="2"><label>4.2 N° Declaración</label><input type="text" name="numeroDeclaracion">
+          <label style="margin-top:6px">4.3 Fecha</label><input type="text" name="fechaDeclaracion"></td>
       </tr>
       <tr>
-        <td><label>3.5 Procedencia / Destino</label><input type="text"></td>
-        <td colspan="2"><label>3.6 Documento de transporte</label><input type="text"></td>
+        <td><label>3.5 Procedencia / Destino</label><input type="text" name="procedencia"></td>
+        <td colspan="2"><label>3.6 Documento de transporte</label><input type="text" name="documentoTransporte"></td>
       </tr>
     </table>
   </section>
@@ -283,8 +283,8 @@
         <th class="sec"><span class="num">6</span>FUNDAMENTO DE DERECHO</th>
       </tr>
       <tr>
-        <td><textarea rows="3" aria-label="Fundamento de hecho"></textarea></td>
-        <td><textarea rows="3" aria-label="Fundamento de derecho"></textarea></td>
+        <td><textarea rows="3" name="fundamentoHecho" aria-label="Fundamento de hecho"></textarea></td>
+        <td><textarea rows="3" name="fundamentoDerecho" aria-label="Fundamento de derecho"></textarea></td>
       </tr>
     </table>
   </section>
@@ -300,13 +300,9 @@
         <th>7.4 Descripción</th>
         <th style="width:22%">7.5 Observaciones</th>
       </tr>
-      <!-- 6 filas vacías -->
-      <tr><td data-l="7.1 N°"><input type="text"></td><td data-l="7.2 Cant."><input type="text"></td><td data-l="7.3 U. Med."><input type="text"></td><td data-l="7.4 Descripción"><input type="text"></td><td data-l="7.5 Observaciones"><input type="text"></td></tr>
-      <tr><td data-l="7.1 N°"><input type="text"></td><td data-l="7.2 Cant."><input type="text"></td><td data-l="7.3 U. Med."><input type="text"></td><td data-l="7.4 Descripción"><input type="text"></td><td data-l="7.5 Observaciones"><input type="text"></td></tr>
-      <tr><td data-l="7.1 N°"><input type="text"></td><td data-l="7.2 Cant."><input type="text"></td><td data-l="7.3 U. Med."><input type="text"></td><td data-l="7.4 Descripción"><input type="text"></td><td data-l="7.5 Observaciones"><input type="text"></td></tr>
-      <tr><td data-l="7.1 N°"><input type="text"></td><td data-l="7.2 Cant."><input type="text"></td><td data-l="7.3 U. Med."><input type="text"></td><td data-l="7.4 Descripción"><input type="text"></td><td data-l="7.5 Observaciones"><input type="text"></td></tr>
-      <tr><td data-l="7.1 N°"><input type="text"></td><td data-l="7.2 Cant."><input type="text"></td><td data-l="7.3 U. Med."><input type="text"></td><td data-l="7.4 Descripción"><input type="text"></td><td data-l="7.5 Observaciones"><input type="text"></td></tr>
-      <tr><td data-l="7.1 N°"><input type="text"></td><td data-l="7.2 Cant."><input type="text"></td><td data-l="7.3 U. Med."><input type="text"></td><td data-l="7.4 Descripción"><input type="text"></td><td data-l="7.5 Observaciones"><input type="text"></td></tr>
+      <tbody data-template="bienes">
+        <tr><td data-l="7.1 N°"><input type="text" name="bienes[0].numero"></td><td data-l="7.2 Cant."><input type="text" name="bienes[0].cantidad"></td><td data-l="7.3 U. Med."><input type="text" name="bienes[0].unidadMedida"></td><td data-l="7.4 Descripción"><input type="text" name="bienes[0].descripcion"></td><td data-l="7.5 Observaciones"><input type="text" name="bienes[0].observaciones"></td></tr>
+      </tbody>
     </table>
   </section>
 
@@ -314,7 +310,7 @@
   <section>
     <table>
       <tr><th class="sec"><span class="num">8</span>OBSERVACIONES:</th></tr>
-      <tr><td><textarea rows="5" aria-label="Observaciones"></textarea></td></tr>
+      <tr><td><textarea rows="5" name="observaciones" aria-label="Observaciones"></textarea></td></tr>
     </table>
   </section>
 

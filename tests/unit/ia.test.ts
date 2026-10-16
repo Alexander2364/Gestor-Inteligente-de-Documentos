@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildClassifierPrompt } from '../../src/prompts/classifier';
-import { detectActaType, extractActaFields } from '../../src/services/ia';
+import { classifyByKeywords, detectActaType, extractActaFields } from '../../src/services/ia';
+import { validateDocumentData } from '../../src/domain/templates/validators';
 
 describe('buildClassifierPrompt', () => {
 	it('incluye el texto recibido y limita documentos demasiado largos', () => {
@@ -71,5 +72,91 @@ describe('extractActaFields', () => {
 		expect(fields.numeroActa).toBe('');
 		expect(fields.tipoAccion).toBe('');
 		expect(fields.bienes).toEqual([]);
+	});
+
+	it('extrae el número de acta impreso en el título del formulario', () => {
+		const fields = extractActaFields(`
+			SUNAT
+			ACTA DE INMOVILIZACIÓN - INCAUTACIÓN N° 235 - 0105 - 2020 - N° 000067
+			1.1 FECHA 04.03.2020
+		`);
+		const compact = extractActaFields('ACTA DE INCAUTACIÓN N°235-0105-2020');
+
+		expect(fields.numeroActa).toBe('235-0105-2020');
+		expect(compact.numeroActa).toBe('235-0105-2020');
+	});
+});
+
+describe('classifyByKeywords (fallback local cuando Ollama no responde)', () => {
+	it('extrae los campos del acta con las reglas locales', () => {
+		const result = classifyByKeywords(`
+			ACTA DE INMOVILIZACIÓN - INCAUTACIÓN
+			[X] 02 INCAUTACION
+			N° Acta: ACT-2026-001
+			Fecha: 14/10/2026
+			RUC: 20123456789
+			Lugar de custodia: Almacén SUNAT
+			Bien 1: cantidad: 10 unidad: cajas descripción: Repuestos observaciones: Sellados
+		`);
+
+		expect(result.tipoDocumento).toBe('ACTA_INCAUTACION');
+		expect(result.campos.numeroActa).toBe('ACT-2026-001');
+		expect(result.campos.fecha).toBe('14/10/2026');
+		expect(result.campos.lugarCustodia).toBe('Almacén SUNAT');
+	});
+
+	it('no inyecta campos de acta en documentos que no son actas', () => {
+		const result = classifyByKeywords('Declaración Jurada Mensual del período 09/2026 con ingresos S/ 1,000');
+
+		expect(result.tipoDocumento).toBe('DECLARACION_JURADA_MENSUAL');
+		expect(result.campos).not.toHaveProperty('numeroActa');
+	});
+
+	it('normaliza el peso con ruido OCR y deja el acta válida', () => {
+		const result = classifyByKeywords(`
+			ACTA DE INMOVILIZACIÓN - INCAUTACIÓN
+			[X] 02 INCAUTACION
+			N° Acta: 235-0105
+			Fecha: 01/01/2020
+			Peso: 3.10 Y:
+		`);
+
+		expect(result.tipoDocumento).toBe('ACTA_INCAUTACION');
+		expect(result.campos.peso).toBe('3.10');
+		expect(validateDocumentData(result.tipoDocumento, result.campos).valido).toBe(true);
+	});
+
+	it('valida un acta con fecha con puntos y número en el título (fallback local)', () => {
+		const result = classifyByKeywords(`
+			ACTA DE INMOVILIZACIÓN - INCAUTACIÓN N° 235 - 0105 - 2020 - N° 000067
+			[X] 01 INMOVILIZACION
+			1.1 FECHA 04.03.2020
+			1.2 HORA 13:38
+			Peso: 3.420 KG
+		`);
+
+		expect(result.campos.numeroActa).toBe('235-0105-2020');
+		expect(result.campos.fecha).toBe('04/03/2020');
+		expect(result.campos.peso).toBe('3.420');
+		expect(validateDocumentData(result.tipoDocumento, result.campos).valido).toBe(true);
+	});
+
+	it('reconoce el acta por el título aunque la casilla no sea legible (OCR real)', () => {
+		// Texto tal como lo devuelve el OCR mejorado de una foto: la casilla marcada
+		// no se distingue, pero aparecen "FISCALIZACIÓN" y "CUSTODIA" (que antes no
+		// se leían). Sin la detección por título, se clasificaba como
+		// REQUERIMIENTO_FISCALIZACION y se perdían todos los campos del acta.
+		const result = classifyByKeywords(`
+			ACTA DE INMOVILIZACIÓN - INCAUTACIÓN N* 235 - 0105 - 2020 N? 000067
+			01 INMOVILIZACIÓN
+			02 INCAUTACIÓN
+			DATOS GENERALES DE LA ACCIÓN DE CONTROL O FISCALIZACIÓN
+			MERCANCIA QUEDA EN CUSTODIA DEL ALMACEN
+			Peso: 3.420
+		`);
+
+		expect(result.tipoDocumento).toBe('ACTA_INMOVILIZACION');
+		expect(result.campos.numeroActa).toBe('235-0105-2020');
+		expect(result.campos.tipoAccion).toBe('INMOVILIZACION');
 	});
 });
