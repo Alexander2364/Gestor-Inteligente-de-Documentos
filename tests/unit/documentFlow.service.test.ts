@@ -74,7 +74,10 @@ describe('documentFlow.service', () => {
     });
     expect(preprocessMobileImageMock).toHaveBeenCalledWith(Buffer.from('image'));
     expect(extractTextMock).toHaveBeenCalledWith(Buffer.from('processed'));
-    expect(classifyWithOllamaMock).toHaveBeenCalledWith('texto del acta');
+    expect(classifyWithOllamaMock).toHaveBeenCalledWith(
+      'texto del acta',
+      expect.objectContaining({ compact: true }),
+    );
   });
 
   it('genera, sube y guarda un documento', async () => {

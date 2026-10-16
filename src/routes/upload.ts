@@ -1,11 +1,10 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { isSupportedMimeType } from '../services/extractor';
-import { enqueueDocument, getDocumentQueue } from '../queues/document.queue';
-import { notifyN8n, processDocument } from '../services/document-processing';
+import { enqueueDocument, enqueueMobileDocument, getDocumentQueue } from '../queues/document.queue';
+import { processDocument, processMobileDocument } from '../services/document-processing';
 import { MOBILE_IMAGE_MIMES, mobileUpload } from '../middleware/mobileUpload';
-import { DocumentFlowError, generateDocument, scanMobileDocument } from '../services/documentFlow.service';
-import { validateDocumentData } from '../domain/templates/validators';
+import { DocumentFlowError } from '../services/documentFlow.service';
 
 const router = Router();
 
@@ -86,34 +85,24 @@ router.post('/mobile', mobileUpload.single('file'), async (req: Request, res: Re
       return res.status(415).json({ error: `Tipo de imagen no soportado: ${req.file.mimetype}` });
     }
 
-    const result = await scanMobileDocument(req.file.buffer, req.file.mimetype);
-    const validation = validateDocumentData(result.tipoDocumento, result.datos);
-    if (!validation.valido) {
-      return res.status(400).json({ error: 'Datos inválidos', errores: validation.errores, etapa: 'validation' });
+    const jobData = {
+      fileName: req.file.originalname || `captura-${Date.now()}.jpg`,
+      mimeType: req.file.mimetype,
+      fileBase64: req.file.buffer.toString('base64'),
+      source: 'mobile' as const,
+    };
+
+    // El OCR + clasificación con IA puede tardar varios minutos en hardware sin GPU.
+    // Lo procesamos en segundo plano y el cliente consulta /upload/status/:jobId.
+    if (process.env.QUEUE_ENABLED === 'true') {
+      const job = await enqueueMobileDocument(jobData);
+      console.log('[Upload Mobile] Captura encolada. Job ID:', job.id);
+      return res.status(202).json({ jobId: job.id, fileName: jobData.fileName, status: 'pending' });
     }
-    const generated = await generateDocument(result.tipoDocumento, result.datos);
 
-    await notifyN8n({
-      event: 'DOCUMENTO_ANALIZADO',
-      documentId: generated.documentoId,
-      fileName: `${result.tipoDocumento}.pdf`,
-      storageUrl: generated.url,
-      tipoDocumento: result.tipoDocumento,
-      confianza: result.confianza,
-      campos: result.datos,
-      resumenEjecutivo: result.resumenEjecutivo,
-      fecha: new Date().toISOString(),
-    });
-
-    return res.json({
-      tipoDocumento: result.tipoDocumento,
-      confianza: result.confianza,
-      campos: result.datos,
-      resumenEjecutivo: result.resumenEjecutivo,
-      templateSugerido: result.tipoDocumento,
-      pdfUrl: generated.url,
-      documentId: generated.documentoId,
-    });
+    console.log('[Upload Mobile] Procesando sincrónicamente (fallback)...');
+    const result = await processMobileDocument(jobData);
+    return res.json(result);
   } catch (err) {
     console.error('[Upload Mobile] Error procesando imagen:', err);
     if (err instanceof DocumentFlowError) {

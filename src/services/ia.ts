@@ -1,4 +1,6 @@
-import { buildClassifierPrompt } from '../prompts/classifier';
+import http from 'node:http';
+import https from 'node:https';
+import { buildCompactClassifierPrompt, buildClassifierPrompt } from '../prompts/classifier';
 import { getAreaByDocumentType } from '../domain/sunat/areas';
 
 export type SunatDocumentType =
@@ -45,7 +47,7 @@ export interface ClassificationResult {
 }
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST ?? 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.1:8b';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.2:3b';
 const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 180000);
 
 const VALID_TYPES: SunatDocumentType[] = [
@@ -91,6 +93,71 @@ export function detectActaType(
   return null;
 }
 
+/**
+ * Detecta el formulario de acta por su título dual ("ACTA DE INMOVILIZACIÓN -
+ * INCAUTACIÓN") cuando la casilla marcada no es legible por OCR. Devuelve el tipo
+ * primario del formulario (INMOVILIZACIÓN). Sin esto, el fallback local clasificaba
+ * el acta como otro documento (p. ej. REQUERIMIENTO_FISCALIZACION por la palabra
+ * "FISCALIZACIÓN" del encabezado) y no extraía ninguno de sus campos.
+ */
+function detectActaForm(
+  text: string,
+): 'ACTA_INMOVILIZACION' | 'ACTA_INCAUTACION' | null {
+  const normalized = text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLocaleUpperCase('es');
+  if (!/\bACTA\b/.test(normalized)) return null;
+
+  const hasInmovilizacion = /INMOVILIZACION/.test(normalized);
+  const hasIncautacion = /INCAUTACION/.test(normalized);
+  if (!hasInmovilizacion && !hasIncautacion) return null;
+  if (hasInmovilizacion && !hasIncautacion) return 'ACTA_INMOVILIZACION';
+  if (hasIncautacion && !hasInmovilizacion) return 'ACTA_INCAUTACION';
+  // Título dual del formulario: usa el tipo primario.
+  return 'ACTA_INMOVILIZACION';
+}
+
+/**
+ * Normaliza el número de acta: une guiones separados por espacios
+ * ("235 - 0105 - 2020" → "235-0105-2020") y recorta separadores sobrantes.
+ */
+function normalizeActaNumber(value: string): string {
+  return value
+    .replace(/\s*[-–—]\s*/g, '-')
+    .replace(/^[\s:.#-]+/, '')
+    .replace(/[\s:.#-]+$/, '')
+    .trim();
+}
+
+/**
+ * Normaliza una fecha a un formato que `validateActa` acepte: convierte los
+ * separadores con punto (`04.03.2020`) o guion (`04-03-2020`) a barra
+ * (`04/03/2020`) y deja intacto el formato ISO (`2020-03-04`).
+ */
+function normalizeDate(value: string): string {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  return trimmed.replace(/[.\-]/g, '/');
+}
+
+/**
+ * Comprueba que una fecha (ya normalizada) sea `YYYY-MM-DD` o `DD/MM/YYYY` y
+ * corresponda a una fecha real. Sirve para descartar el ruido que el modelo local
+ * inventa en los campos de fecha (p. ej. "07/VEN/2020").
+ */
+function isPlausibleDate(value: string): boolean {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$|^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return false;
+  const year = Number(match[1] ?? match[6]);
+  const month = Number(match[2] ?? match[5]);
+  const day = Number(match[3] ?? match[4]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
 export function extractActaFields(text: string): Record<string, any> {
   const read = (patterns: RegExp[]): string => {
     for (const pattern of patterns) {
@@ -100,16 +167,21 @@ export function extractActaFields(text: string): Record<string, any> {
     return '';
   };
 
-  const type = detectActaType(text);
+  const type = detectActaType(text) ?? detectActaForm(text);
   const fields: Record<string, any> = {
-    numeroActa: read([
+    numeroActa: normalizeActaNumber(read([
       /\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?acta\s*[:#-]?\s*([^\n,;]+)/i,
       /\bacta\s*(?:n[uú]mero|nro\.?|n[°º])\s*[:#-]?\s*([^\n,;]+)/i,
-    ]),
+      // Título del acta: "ACTA DE INMOVILIZACIÓN - INCAUTACIÓN N° 235-0105-2020 - N° 000067".
+      /\bacta\b[\s\S]{0,120}?\bn\s*[°ºo0*]?\s*\.?\s*[:#-]?\s*(\d[\d\s]*(?:\s*[-–—]\s*\d{1,8}){0,4})/i,
+    ])),
     tipoAccion: type === 'ACTA_INMOVILIZACION'
       ? 'INMOVILIZACION'
       : type === 'ACTA_INCAUTACION' ? 'INCAUTACION' : '',
-    fecha: read([/\bfecha\s*(?:de\s*acta)?\s*[:#-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})/i]),
+    fecha: normalizeDate(read([
+      /\bfecha\s*(?:de\s*acta)?\s*[:#-]?\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i,
+      /\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})\b/,
+    ])),
     hora: read([/\bhora\s*[:#-]?\s*(\d{1,2}:\d{2}(?::\d{2})?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)?)/i]),
     numeroAccionControl: read([/\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?(?:acci[oó]n|control)\s*[:#-]?\s*([^\n,;]+)/i]),
     lugarAccionControl: read([/\blugar\s+(?:de\s+la\s+)?acci[oó]n\s+(?:de\s+control)?\s*[:#-]?\s*([^\n]+)/i]),
@@ -172,6 +244,94 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function isActaType(tipoDocumento: string): boolean {
+  return tipoDocumento === 'ACTA_INMOVILIZACION' || tipoDocumento === 'ACTA_INCAUTACION';
+}
+
+/**
+ * Conserva solo los campos de acta con contenido real (descarta cadenas vacías y
+ * arreglos de bienes vacíos) para no ensuciar los datos extraídos.
+ */
+function compactFields(fields: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([key, value]) => (
+      key === 'bienes'
+        ? Array.isArray(value) && value.length > 0
+        : value !== '' && value !== undefined && value !== null
+    )),
+  );
+}
+
+/**
+ * Extrae el primer número de un valor y lo normaliza a punto decimal. Los modelos
+ * locales (y el OCR) suelen devolver unidades o etiquetas pegadas al número, por
+ * ejemplo "3.10 Y:" o "S/ 1,200.00 kg", que `validateActa` rechazaría como "Peso
+ * debe ser un número válido" y haría fallar toda el acta.
+ */
+function coerceNumber(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  const raw = String(value ?? '').replace(/^S\/\s*/i, '');
+  const match = raw.match(/-?\d[\d.,]*\d|-?\d/);
+  if (!match) return '';
+  const token = match[0].replace(/[.,]+$/, '');
+  return token.includes('.') && token.includes(',')
+    ? token.replace(/,/g, '')
+    : token.replace(',', '.');
+}
+
+/**
+ * Sanea los campos numéricos de un acta (`peso` y la `cantidad` de cada bien) para
+ * que pasen la validación. Si no hay ningún número reconocible, se deja el campo
+ * vacío en vez de romper el flujo completo.
+ */
+function coerceActaNumbers(campos: Record<string, any>): Record<string, any> {
+  if (campos.peso !== undefined && campos.peso !== '') {
+    campos.peso = coerceNumber(campos.peso);
+  }
+  // El RUC de un acta debe tener 11 dígitos. Si el modelo devuelve algo con
+  // otro largo, lo dejamos vacío en vez de romper la validación del acta.
+  if (campos.ruc !== undefined && campos.ruc !== '') {
+    const digits = String(campos.ruc).replace(/\D/g, '');
+    campos.ruc = digits.length === 11 ? digits : '';
+  }
+  if (campos.fecha) {
+    const fecha = normalizeDate(String(campos.fecha));
+    campos.fecha = isPlausibleDate(fecha) ? fecha : '';
+  }
+  if (campos.fechaDeclaracion) {
+    const declaracion = normalizeDate(String(campos.fechaDeclaracion));
+    campos.fechaDeclaracion = isPlausibleDate(declaracion) ? declaracion : '';
+  }
+  // Partes del número de acta para el encabezado de la plantilla:
+  // "235-0105-2020" → actaCodigo1=235, actaCodigo2=0105, actaAnio=2020.
+  const actaParts = String(campos.numeroActa ?? '')
+    .split('-')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (actaParts[0]) campos.actaCodigo1 = actaParts[0];
+  if (actaParts[1]) campos.actaCodigo2 = actaParts[1];
+  if (actaParts[2]) campos.actaAnio = actaParts[2];
+
+  // La plantilla no tiene casillas propias para peso ni custodia; se anexan a las
+  // observaciones, igual que en el acta física.
+  const extras: string[] = [];
+  if (campos.peso) extras.push(`PESO: ${campos.peso} KG`);
+  if (campos.lugarCustodia) extras.push(`LUGAR DE CUSTODIA: ${campos.lugarCustodia}`);
+  if (extras.length) {
+    const base = String(campos.observaciones ?? '').trim();
+    campos.observaciones = [base, ...extras].filter(Boolean).join('\n');
+  }
+  if (Array.isArray(campos.bienes)) {
+    campos.bienes = campos.bienes.map((bien) => {
+      if (!bien || typeof bien !== 'object' || Array.isArray(bien)) return bien;
+      const item = bien as Record<string, unknown>;
+      if (item.cantidad === undefined || item.cantidad === '') return item;
+      return { ...item, cantidad: coerceNumber(item.cantidad) };
+    });
+  }
+  return campos;
 }
 
 function asStringRecord(value: unknown): Record<string, string> {
@@ -365,22 +525,20 @@ function normalizeOllamaResult(value: Record<string, unknown>, text: string): Cl
   const classifiedType = isDocumentType(value.tipoDocumento)
     ? value.tipoDocumento
     : 'DECLARACION_JURADA_MENSUAL';
-  const isActa = classifiedType === 'ACTA_INMOVILIZACION'
-    || classifiedType === 'ACTA_INCAUTACION';
+  // Detecta el acta también desde el texto: si el OCR del formulario es legible,
+  // no dependemos de que el modelo local acierte el tipoDocumento.
+  const actaFromText = detectActaType(text) ?? detectActaForm(text);
+  const isActa = isActaType(classifiedType) || actaFromText !== null;
   const tipoDocumento = isActa
-    ? detectActaType(text) ?? classifiedType
+    ? actaFromText ?? classifiedType
     : classifiedType;
-  const actaFields = isActa ? extractActaFields(text) : {};
-  const populatedActaFields = Object.fromEntries(
-    Object.entries(actaFields).filter(([key, field]) => (
-      key === 'bienes' ? field.length > 0 : field !== ''
-    )),
-  );
-  const campos = {
+  const populatedActaFields = isActa ? compactFields(extractActaFields(text)) : {};
+  const camposBase = {
     ...extractFields(text),
     ...asStringRecord(value.campos),
     ...populatedActaFields,
   };
+  const campos = isActa ? coerceActaNumbers(camposBase) : camposBase;
   const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos);
   const informe = asRecord(value.informeEjecutivo);
   const baseReport = createExecutiveReport(tipoDocumento, campos, resumenEjecutivo);
@@ -405,7 +563,7 @@ function normalizeOllamaResult(value: Record<string, unknown>, text: string): Cl
   };
 }
 
-function classifyByKeywords(text: string): ClassificationResult {
+export function classifyByKeywords(text: string): ClassificationResult {
   const lowerText = text.toLocaleLowerCase('es');
   const rules: Array<{ tipo: SunatDocumentType; keywords: string[] }> = [
     { tipo: 'SOLICITUD_INSCRIPCION_RUC', keywords: ['formulario 2119', 'inscripción al ruc', 'actividad económica'] },
@@ -427,8 +585,17 @@ function classifyByKeywords(text: string): ClassificationResult {
     .map((rule) => ({ ...rule, score: rule.keywords.filter((keyword) => lowerText.includes(keyword)).length }))
     .sort((left, right) => right.score - left.score)[0];
   const keywordType = best?.score ? best.tipo : 'DECLARACION_JURADA_MENSUAL';
-  const tipoDocumento = detectActaType(text) ?? keywordType;
-  const campos = extractFields(text);
+  // Para actas: primero la casilla marcada; si el OCR no la lee, el título del
+  // formulario (evita clasificar el acta como REQUERIMIENTO_FISCALIZACION).
+  const tipoDocumento = detectActaType(text) ?? detectActaForm(text) ?? keywordType;
+  // Para las actas, además de la clasificación, extraemos los campos con las
+  // reglas locales. Sin esto, cuando Ollama falla/expira el resultado quedaba en
+  // `{}` y la validación rechazaba el documento por falta de número de acta/fecha.
+  const camposBase = {
+    ...extractFields(text),
+    ...(isActaType(tipoDocumento) ? compactFields(extractActaFields(text)) : {}),
+  };
+  const campos = isActaType(tipoDocumento) ? coerceActaNumbers(camposBase) : camposBase;
   const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos);
   const report = createExecutiveReport(tipoDocumento, campos, resumenEjecutivo);
   return {
@@ -441,24 +608,97 @@ function classifyByKeywords(text: string): ClassificationResult {
   };
 }
 
-export async function classifyWithOllama(text: string): Promise<ClassificationResult> {
+/**
+ * POST JSON usando node:http/https en lugar del fetch global (undici).
+ * El fetch de undici aplica headersTimeout/bodyTimeout de 300s por defecto, lo que
+ * aborta las generaciones largas de Ollama ("fetch failed") mucho antes que OLLAMA_TIMEOUT_MS.
+ * Con node:http deshabilitamos ese tope y el único límite es nuestro AbortController.
+ */
+function postJsonToOllama(
+  urlStr: string,
+  body: unknown,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    let target: URL;
+    try {
+      target = new URL(urlStr);
+    } catch {
+      reject(new Error(`URL de Ollama inválida: ${urlStr}`));
+      return;
+    }
+    const isHttps = target.protocol === 'https:';
+    const lib = (isHttps ? https : http) as typeof http;
+    const data = JSON.stringify(body);
+    const req = lib.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || (isHttps ? 443 : 80),
+        path: `${target.pathname}${target.search}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on('end', () => resolve({
+          status: res.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString('utf8'),
+        }));
+      },
+    );
+    const abort = (): void => {
+      req.destroy(new Error('This operation was aborted'));
+    };
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    req.setTimeout(timeoutMs, abort);
+    req.on('error', (error) => reject(error));
+    req.write(data);
+    req.end();
+  });
+}
+
+export interface ClassifyOllamaOptions {
+  /** Pide un esquema compacto (sin `informeEjecutivo`) para reducir la generación. */
+  compact?: boolean;
+  /** Tope de tokens a generar (`num_predict`). Acota el peor caso para no agotar el timeout. */
+  maxPredict?: number;
+}
+
+export async function classifyWithOllama(
+  text: string,
+  options: ClassifyOllamaOptions = {},
+): Promise<ClassificationResult> {
+  const { compact = false, maxPredict } = options;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
   try {
-    const response = await fetch(`${OLLAMA_HOST}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const { status, body } = await postJsonToOllama(
+      `${OLLAMA_HOST}/api/generate`,
+      {
         model: OLLAMA_MODEL,
-        prompt: buildClassifierPrompt(text),
+        prompt: compact ? buildCompactClassifierPrompt(text) : buildClassifierPrompt(text),
         stream: false,
         format: 'json',
-        options: { temperature: 0.1 },
-      }),
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`Ollama respondió HTTP ${response.status}`);
-    const payload = await response.json() as { response?: string };
+        options: {
+          temperature: 0.1,
+          ...(maxPredict && maxPredict > 0 ? { num_predict: maxPredict } : {}),
+        },
+      },
+      OLLAMA_TIMEOUT_MS,
+      controller.signal,
+    );
+    if (status !== 200) throw new Error(`Ollama respondió HTTP ${status}`);
+    const payload = JSON.parse(body) as { response?: string };
     if (!payload.response) throw new Error('Ollama devolvió una respuesta vacía');
     return normalizeOllamaResult(parseJsonResponse(payload.response), text);
   } catch (error) {

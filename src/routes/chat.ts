@@ -4,7 +4,7 @@ import { extractText, SupportedMimeType } from '../services/extractor';
 
 const router = Router();
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:3b';
 const STORAGE_BUCKET = 'DocumentosIA';
 
 function normalize(str: string): string {
