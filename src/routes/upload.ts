@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { isSupportedMimeType, closeOcrWorker } from '../services/extractor';
+import { isSupportedMimeType } from '../services/extractor';
 import { enqueueDocument, getDocumentQueue } from '../queues/document.queue';
-import { processDocument } from '../services/document-processing';
+import { notifyN8n, processDocument } from '../services/document-processing';
+import { MOBILE_IMAGE_MIMES, mobileUpload } from '../middleware/mobileUpload';
+import { DocumentFlowError, generateDocument, scanMobileDocument } from '../services/documentFlow.service';
+import { validateDocumentData } from '../domain/templates/validators';
 
 const router = Router();
 
@@ -24,8 +27,26 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       return res.status(400).json({ error: `Tipo no soportado: ${req.file.mimetype}` });
     }
 
+    let fileName = req.file.originalname;
+    try {
+      const utf8Name = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      if (!utf8Name.includes('Ã')) fileName = utf8Name;
+    } catch {}
+
+    fileName = fileName
+      .replace(/Ã[\u0080-\u009f]?N/g, 'ÓN')
+      .replace(/Ã“/g, 'Ó')
+      .replace(/Ã\u0093/g, 'Ó')
+      .replace(/Ã¡/g, 'á')
+      .replace(/Ã©/g, 'é')
+      .replace(/Ã­/g, 'í')
+      .replace(/Ã³/g, 'ó')
+      .replace(/Ãº/g, 'ú')
+      .replace(/Ã±/g, 'ñ')
+      .replace(/ÃN/g, 'ÓN');
+
     const jobData = {
-      fileName: req.file.originalname,
+      fileName,
       mimeType: req.file.mimetype,
       fileBase64: req.file.buffer.toString('base64'),
     };
@@ -39,7 +60,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
       
       return res.status(202).json({
         jobId: job.id,
-        fileName: req.file.originalname,
+        fileName,
         status: 'pending',
       });
     }
@@ -52,6 +73,57 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     console.error('[Upload] ❌ ERROR FATAL:', err);
     const message = err instanceof Error ? err.message : 'Error interno';
     res.status(500).json({ error: message });
+  }
+});
+
+router.post('/mobile', mobileUpload.single('file'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se envio ninguna imagen' });
+    }
+
+    if (!MOBILE_IMAGE_MIMES.has(req.file.mimetype)) {
+      return res.status(415).json({ error: `Tipo de imagen no soportado: ${req.file.mimetype}` });
+    }
+
+    const result = await scanMobileDocument(req.file.buffer, req.file.mimetype);
+    const validation = validateDocumentData(result.tipoDocumento, result.datos);
+    if (!validation.valido) {
+      return res.status(400).json({ error: 'Datos inválidos', errores: validation.errores, etapa: 'validation' });
+    }
+    const generated = await generateDocument(result.tipoDocumento, result.datos);
+
+    await notifyN8n({
+      event: 'DOCUMENTO_ANALIZADO',
+      documentId: generated.documentoId,
+      fileName: `${result.tipoDocumento}.pdf`,
+      storageUrl: generated.url,
+      tipoDocumento: result.tipoDocumento,
+      confianza: result.confianza,
+      campos: result.datos,
+      resumenEjecutivo: result.resumenEjecutivo,
+      fecha: new Date().toISOString(),
+    });
+
+    return res.json({
+      tipoDocumento: result.tipoDocumento,
+      confianza: result.confianza,
+      campos: result.datos,
+      resumenEjecutivo: result.resumenEjecutivo,
+      templateSugerido: result.tipoDocumento,
+      pdfUrl: generated.url,
+      documentId: generated.documentoId,
+    });
+  } catch (err) {
+    console.error('[Upload Mobile] Error procesando imagen:', err);
+    if (err instanceof DocumentFlowError) {
+      return res.status(err.stage === 'template' ? 404 : 500).json({
+        error: err.message,
+        etapa: err.stage,
+      });
+    }
+    const message = err instanceof Error ? err.message : 'Error interno procesando imagen';
+    return res.status(500).json({ error: message });
   }
 });
 

@@ -1,8 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { Workbook } from 'exceljs';
-import { extractText } from '../../src/services/extractor';
+import sharp from 'sharp';
+import { extractText, preprocessMobileImage } from '../../src/services/extractor';
 
 describe('extractText', () => {
+    it('preprocesa fotos móviles como PNG binario en escala de grises', async () => {
+        const input = await sharp({
+            create: {
+                width: 8,
+                height: 4,
+                channels: 3,
+                background: { r: 120, g: 120, b: 120 },
+            },
+        }).jpeg().toBuffer();
+
+        const output = await preprocessMobileImage(input);
+        const metadata = await sharp(output).metadata();
+
+        expect(metadata.format).toBe('png');
+        expect(metadata.channels).toBe(1);
+    });
+
     it('extrae hojas y valores de un XLSX sin OCR', async () => {
         const workbook = new Workbook();
         const worksheet = workbook.addWorksheet('Deudas');

@@ -13,6 +13,15 @@ export function getAreaByDocumentType(tipo: string): string {
     AUDITORIA_LIBROS: 'INTENDENCIA_FISCALIZACION',
     CARTA_PRESENTACION: 'INTENDENCIA_RECAUDACION_CONTROL_MASIVO',
     NOTIFICACION_ELECTRONICA: 'INTENDENCIA_RECAUDACION_CONTROL_MASIVO',
+    ACTA_INMOVILIZACION: 'PREVENCION_CONTRABANDO_FISCALIZACION_ADUANERA',
+    ACTA_INCAUTACION: 'PREVENCION_CONTRABANDO_FISCALIZACION_ADUANERA',
   };
   return mapping[tipo] || 'INTENDENCIA_RECAUDACION_CONTROL_MASIVO';
+}
+
+export function getDestinationEmailByDocumentType(tipo: string): string {
+  if (tipo === 'ACTA_INMOVILIZACION' || tipo === 'ACTA_INCAUTACION') {
+    return process.env.ADUANAS_EMAIL ?? 'aduanas.fiscalizacion@sunat.gob.pe';
+  }
+  return '';
 }

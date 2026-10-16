@@ -1,5 +1,6 @@
 //1. Imports
 import pdfParse from 'pdf-parse';
+import sharp from 'sharp';
 import { createWorker } from 'tesseract.js';
 import { parseDocx } from './parsers/docx';
 import { parseXlsx } from './parsers/xlsx';
@@ -71,6 +72,19 @@ function normalizeText(text: string): string {
     return normalized;
 }
 
+export async function preprocessMobileImage(buffer: Buffer): Promise<Buffer> {
+    return sharp(buffer)
+        .rotate()
+        .median(3)
+        .grayscale()
+        .normalize()
+        .threshold(180)
+        .grayscale()
+        .toColourspace('b-w')
+        .png()
+        .toBuffer();
+}
+
 //6. Función principal extractText
 export async function extractText(buffer: Buffer, mimeType: string, originalName?: string): Promise<ExtractResult> {
     // 1. Si el mime-type es genérico, intentar detectar por extensión
@@ -139,28 +153,16 @@ async function extractFromXlsx(buffer: Buffer): Promise<ExtractResult> {
     };
 }
 
-//12. extractFromImage
-async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Promise<ExtractResult> {
-    let processedBuffer!: Buffer;
-
-    try {
-        processedBuffer = await preprocessImage(buffer);
-    } catch (error) {
-        const msg = error instanceof Error ? error.message : 'Error desconocido';
-        throw new Error(`Error preprocesando imagen de tipo ${mimeType}: ${msg}`);
-    }
-
+export async function extractTextFromPreprocessedImage(buffer: Buffer): Promise<string> {
     let text = '';
     const maxAttempts = 2;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
             const worker = await getOcrWorker();
-            const { data: { text: extractedText } } = await worker.recognize(processedBuffer);
+            const { data: { text: extractedText } } = await worker.recognize(buffer);
             text = normalizeText(extractedText);
-            if (text.trim() !== '') {
-                break;
-            }
+            if (text.trim() !== '') break;
         } catch (error) {
             const msg = error instanceof Error ? error.message : 'Error desconocido';
             console.error(`Intento ${attempt + 1} fallido de OCR:`, msg);
@@ -171,8 +173,27 @@ async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Pr
     }
 
     if (text.trim() === '') {
-        throw new Error(`Texto extraído está vacío para tipo ${mimeType}`);
+        throw new Error('Texto extraído está vacío');
     }
+
+    return text;
+}
+
+//12. extractFromImage
+async function extractFromImage(buffer: Buffer, mimeType: SupportedMimeType): Promise<ExtractResult> {
+    let processedBuffer!: Buffer;
+
+    try {
+        const preprocess = mimeType === 'image/jpeg' || mimeType === 'image/jpg'
+            ? preprocessMobileImage
+            : preprocessImage;
+        processedBuffer = await preprocess(buffer);
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Error desconocido';
+        throw new Error(`Error preprocesando imagen de tipo ${mimeType}: ${msg}`);
+    }
+
+    const text = await extractTextFromPreprocessedImage(processedBuffer);
 
     return {
         text,

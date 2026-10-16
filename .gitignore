@@ -10,6 +10,11 @@ graphify-out/
 .graphify_*
 .aider*
 
+# Skills y configuración local de agentes
+.agents/
+.claude/
+.opencode/
+
 # Archivos de contexto temporal de IA
 ARCHITECTURE_GRAPH.md
 PROJECT_CONTEXT.md
