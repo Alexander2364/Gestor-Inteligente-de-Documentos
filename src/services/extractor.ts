@@ -1,7 +1,7 @@
 //1. Imports
 import pdfParse from 'pdf-parse';
 import sharp from 'sharp';
-import { createWorker } from 'tesseract.js';
+import { createWorker, PSM } from 'tesseract.js';
 import { parseDocx } from './parsers/docx';
 import { parseXlsx } from './parsers/xlsx';
 import { preprocessImage } from './ocr/preprocess';
@@ -73,13 +73,14 @@ function normalizeText(text: string): string {
 }
 
 export async function preprocessMobileImage(buffer: Buffer): Promise<Buffer> {
+    // Para fotos de cámara el umbral global fijo destruía el trazo (sombras/fondo).
+    // Mejor: gris + normalize + escalar (Tesseract rinde mejor ~300 DPI) + sharpen.
     return sharp(buffer)
         .rotate()
-        .median(3)
         .grayscale()
         .normalize()
-        .threshold(180)
-        .grayscale()
+        .resize({ width: 2000, withoutEnlargement: false })
+        .sharpen()
         .toColourspace('b-w')
         .png()
         .toBuffer();
@@ -160,6 +161,9 @@ export async function extractTextFromPreprocessedImage(buffer: Buffer): Promise<
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
             const worker = await getOcrWorker();
+            // Modo "texto disperso": el ideal para formularios con campos en tabla.
+            // El PSM por defecto leía muy poco de las actas (6/27 vs 11/27 medidos).
+            await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
             const { data: { text: extractedText } } = await worker.recognize(buffer);
             text = normalizeText(extractedText);
             if (text.trim() !== '') break;

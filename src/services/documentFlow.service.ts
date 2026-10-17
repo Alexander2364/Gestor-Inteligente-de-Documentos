@@ -31,6 +31,13 @@ export interface GeneratedDocument {
   tipoDocumento: string;
 }
 
+/**
+ * Tope de tokens para el flujo de cámara. En hardware sin GPU (~2 tok/s) acota el
+ * peor caso a ~6 min, por debajo del timeout de Ollama, y evita que el modelo
+ * divague hasta agotar los 10 minutos.
+ */
+const MOBILE_MAX_PREDICT = Number(process.env.OLLAMA_MOBILE_MAX_PREDICT ?? 768);
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Error desconocido';
 }
@@ -51,7 +58,8 @@ export async function scanMobileDocument(buffer: Buffer, mimeType: string): Prom
   }
 
   try {
-    const result = await classifyWithOllama(text);
+    // Esquema compacto + tope de tokens para que el modelo termine a tiempo en CPU.
+    const result = await classifyWithOllama(text, { compact: true, maxPredict: MOBILE_MAX_PREDICT });
     return {
       tipoDocumento: result.tipoDocumento,
       confianza: result.confianza,

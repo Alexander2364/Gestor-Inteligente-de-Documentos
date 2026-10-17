@@ -4,7 +4,7 @@ import sharp from 'sharp';
 import { extractText, preprocessMobileImage } from '../../src/services/extractor';
 
 describe('extractText', () => {
-    it('preprocesa fotos móviles como PNG binario en escala de grises', async () => {
+    it('preprocesa fotos móviles: PNG en escala de grises, escalado y sin umbral duro', async () => {
         const input = await sharp({
             create: {
                 width: 8,
@@ -19,6 +19,7 @@ describe('extractText', () => {
 
         expect(metadata.format).toBe('png');
         expect(metadata.channels).toBe(1);
+        expect(metadata.width).toBe(2000);
     });
 
     it('extrae hojas y valores de un XLSX sin OCR', async () => {

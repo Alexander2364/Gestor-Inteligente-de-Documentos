@@ -1,9 +1,11 @@
 import { extractText, SupportedMimeType } from './extractor';
 import { classifyWithOllama } from './ia';
-import { DocumentJobData, DocumentJobResult } from '../domain/jobs';
+import { DocumentJobData, DocumentJobResult, MobileDocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
 import type { Document, DocumentAnalysis, ExtractedMetadata, DocumentDerivation } from '../types/supabase';
 import { getDestinationEmailByDocumentType } from '../domain/sunat/areas';
+import { generateDocument, scanMobileDocument } from './documentFlow.service';
+import { validateDocumentData } from '../domain/templates/validators';
 
 const STORAGE_BUCKET = 'DocumentosIA';
 
@@ -397,4 +399,52 @@ export async function processAllPendingDocuments(): Promise<any[]> {
   }
 
   return results;
+}
+
+/**
+ * Procesa una captura de cámara en segundo plano (flujo móvil):
+ * mejora de imagen → OCR → clasificación IA → validación → plantilla PDF → storage → BD → n8n.
+ * Se ejecuta en el worker para no bloquear la petición HTTP durante los varios minutos
+ * que tarda el análisis en hardware sin GPU.
+ */
+export async function processMobileDocument(jobData: DocumentJobData): Promise<MobileDocumentJobResult> {
+  const buffer = Buffer.from(jobData.fileBase64, 'base64');
+
+  const result = await scanMobileDocument(buffer, jobData.mimeType);
+
+  const validation = validateDocumentData(result.tipoDocumento, result.datos);
+  if (!validation.valido) {
+    // El flujo de archivo (PDF/Word) no bloquea por validación; el de cámara sí lo
+    // hacía, y por eso fallaba mientras el otro completaba. Aquí solo advertimos y
+    // generamos el PDF con los campos disponibles para revisión humana.
+    console.warn(`[MobileJob] Validación con observaciones: ${validation.errores.join('. ') || 'sin detalle'}`);
+    console.warn(`[MobileJob] Campos extraídos: ${JSON.stringify(result.datos)}`);
+  }
+
+  const generated = await generateDocument(result.tipoDocumento, result.datos);
+
+  await notifyN8n({
+    event: 'DOCUMENTO_ANALIZADO',
+    documentId: generated.documentoId,
+    fileName: `${result.tipoDocumento}.pdf`,
+    storageUrl: generated.url,
+    tipoDocumento: result.tipoDocumento,
+    confianza: result.confianza,
+    campos: result.datos,
+    resumenEjecutivo: result.resumenEjecutivo,
+    remitente: 'ea.luisperez@gmail.com',
+    fecha: new Date().toISOString(),
+    warnings: validation.errores,
+  });
+
+  return {
+    tipoDocumento: result.tipoDocumento,
+    confianza: result.confianza,
+    campos: result.datos,
+    resumenEjecutivo: result.resumenEjecutivo,
+    templateSugerido: result.tipoDocumento,
+    pdfUrl: generated.url,
+    documentId: generated.documentoId,
+    warnings: validation.errores,
+  };
 }

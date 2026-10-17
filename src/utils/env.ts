@@ -45,7 +45,7 @@ export function validateEnv(): void {
     console.log(` PORT: ${process.env.PORT ?? '3000 (default)'}`);
     console.log(` OLLAMA_HOST: ${process.env.OLLAMA_HOST}`);
     console.log(` OLLAMA_MODEL: ${process.env.OLLAMA_MODEL}`);
-    console.log(` OLLAMA_TIMEOUT_MS: ${process.env.OLLAMA_TIMEOUT_MS ?? '60000 (default)'}`);
+    console.log(` OLLAMA_TIMEOUT_MS: ${process.env.OLLAMA_TIMEOUT_MS ?? '180000 (default)'}`);
     console.log(` FRONTEND_URL: ${process.env.FRONTEND_URL ?? 'no configurado'}`);
     console.log(` QUEUE_ENABLED: ${process.env.QUEUE_ENABLED ?? 'false'}`);
 }
