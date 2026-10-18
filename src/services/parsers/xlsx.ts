@@ -4,26 +4,23 @@ import { NativeExtractedDocument } from './types';
 export async function parseXlsx(buffer: Buffer): Promise<NativeExtractedDocument> {
   try {
     const workbook = new Workbook();
-    
-    
-    // @ts-ignore: Conflicto de tipos entre @types/node (Buffer<ArrayBufferLike>) y exceljs.
+
+    // @ts-expect-error: Conflicto de tipos entre @types/node (Buffer<ArrayBufferLike>) y exceljs.
     await workbook.xlsx.load(buffer);
 
     const tables = await Promise.all(
       workbook.worksheets.map(async (sheet) => {
         const rows: string[][] = [];
-        
+
         // eachRow itera sobre las filas reales de la hoja
         sheet.eachRow({ includeEmpty: false }, (row: Row) => {
           // row.values puede ser null o un array de CellValue
           if (row.values && Array.isArray(row.values)) {
             // Los valores en exceljs son 1-indexados (el índice 0 es null)
-            const cells = (row.values as CellValue[])
-              .slice(1)
-              .map((cell: CellValue) => {
-                if (cell === null || cell === undefined) return '';
-                return String(cell);
-              });
+            const cells = (row.values as CellValue[]).slice(1).map((cell: CellValue) => {
+              if (cell === null || cell === undefined) return '';
+              return String(cell);
+            });
             rows.push(cells);
           }
         });
@@ -32,7 +29,7 @@ export async function parseXlsx(buffer: Buffer): Promise<NativeExtractedDocument
           name: sheet.name || 'Hoja sin nombre',
           rows,
         };
-      })
+      }),
     );
 
     // Unificar el texto manteniendo el formato original del proyecto
@@ -49,7 +46,8 @@ export async function parseXlsx(buffer: Buffer): Promise<NativeExtractedDocument
     };
   } catch (error) {
     // Manejo de errores estricto
-    const msg = error instanceof Error ? error.message : 'Error desconocido procesando archivo XLSX';
+    const msg =
+      error instanceof Error ? error.message : 'Error desconocido procesando archivo XLSX';
     throw new Error(msg);
   }
 }

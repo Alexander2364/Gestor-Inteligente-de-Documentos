@@ -26,7 +26,9 @@ function baseJobOptions() {
   };
 }
 
-export async function enqueueDocument(data: DocumentJobData): Promise<Job<DocumentJobData, AnyDocumentJobResult>> {
+export async function enqueueDocument(
+  data: DocumentJobData,
+): Promise<Job<DocumentJobData, AnyDocumentJobResult>> {
   return getDocumentQueue().add(FILE_JOB_NAME, data, baseJobOptions());
 }
 
@@ -35,7 +37,9 @@ export async function enqueueDocument(data: DocumentJobData): Promise<Job<Docume
  * OCR + clasificación con IA puede tardar varios minutos en hardware sin GPU.
  * Usamos attempts:1 para no repetir automáticamente un análisis tan costoso.
  */
-export async function enqueueMobileDocument(data: DocumentJobData): Promise<Job<DocumentJobData, AnyDocumentJobResult>> {
+export async function enqueueMobileDocument(
+  data: DocumentJobData,
+): Promise<Job<DocumentJobData, AnyDocumentJobResult>> {
   return getDocumentQueue().add(MOBILE_JOB_NAME, data, {
     ...baseJobOptions(),
     attempts: 1,

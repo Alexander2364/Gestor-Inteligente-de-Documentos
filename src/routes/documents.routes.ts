@@ -45,29 +45,33 @@ router.post('/generate-document', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/scan-and-generate', mobileUpload.single('file'), async (req: Request, res: Response) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No se envio ninguna imagen' });
-  }
+router.post(
+  '/scan-and-generate',
+  mobileUpload.single('file'),
+  async (req: Request, res: Response) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se envio ninguna imagen' });
+    }
 
-  if (!MOBILE_IMAGE_MIMES.has(req.file.mimetype)) {
-    return res.status(415).json({ error: `Tipo de imagen no soportado: ${req.file.mimetype}` });
-  }
+    if (!MOBILE_IMAGE_MIMES.has(req.file.mimetype)) {
+      return res.status(415).json({ error: `Tipo de imagen no soportado: ${req.file.mimetype}` });
+    }
 
-  try {
-    // Reutiliza el flujo de cámara: registra el documento de ENTRADA, crea el
-    // análisis, los metadatos y la derivación PENDING, y genera el PDF (salida).
-    const result = await processMobileDocument({
-      fileName: req.file.originalname || `captura-${Date.now()}.jpg`,
-      mimeType: req.file.mimetype,
-      fileBase64: req.file.buffer.toString('base64'),
-      source: 'mobile',
-    });
+    try {
+      // Reutiliza el flujo de cámara: registra el documento de ENTRADA, crea el
+      // análisis, los metadatos y la derivación PENDING, y genera el PDF (salida).
+      const result = await processMobileDocument({
+        fileName: req.file.originalname || `captura-${Date.now()}.jpg`,
+        mimeType: req.file.mimetype,
+        fileBase64: req.file.buffer.toString('base64'),
+        source: 'mobile',
+      });
 
-    return res.status(201).json(result);
-  } catch (error) {
-    return sendFlowError(res, error);
-  }
-});
+      return res.status(201).json(result);
+    } catch (error) {
+      return sendFlowError(res, error);
+    }
+  },
+);
 
 export default router;

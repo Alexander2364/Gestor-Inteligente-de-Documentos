@@ -70,18 +70,16 @@ function isDocumentType(value: unknown): value is SunatDocumentType {
   return typeof value === 'string' && VALID_TYPES.includes(value as SunatDocumentType);
 }
 
-export function detectActaType(
-  text: string,
-): 'ACTA_INMOVILIZACION' | 'ACTA_INCAUTACION' | null {
+export function detectActaType(text: string): 'ACTA_INMOVILIZACION' | 'ACTA_INCAUTACION' | null {
   const normalized = text
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
     .toLocaleUpperCase('es');
 
-  const checked01 = /\[\s*x\s*\]\s*01\b/i.test(normalized)
-    || /\b01\b[^\n]{0,60}\[\s*x\s*\]/i.test(normalized);
-  const checked02 = /\[\s*x\s*\]\s*02\b/i.test(normalized)
-    || /\b02\b[^\n]{0,60}\[\s*x\s*\]/i.test(normalized);
+  const checked01 =
+    /\[\s*x\s*\]\s*01\b/i.test(normalized) || /\b01\b[^\n]{0,60}\[\s*x\s*\]/i.test(normalized);
+  const checked02 =
+    /\[\s*x\s*\]\s*02\b/i.test(normalized) || /\b02\b[^\n]{0,60}\[\s*x\s*\]/i.test(normalized);
 
   if (checked01 !== checked02) {
     return checked01 ? 'ACTA_INMOVILIZACION' : 'ACTA_INCAUTACION';
@@ -91,9 +89,7 @@ export function detectActaType(
   const hasIncautacionContext = /\bcomiso\b|\bincautacion\b/i.test(normalized);
 
   if (hasInmovilizacionContext !== hasIncautacionContext) {
-    return hasInmovilizacionContext
-      ? 'ACTA_INMOVILIZACION'
-      : 'ACTA_INCAUTACION';
+    return hasInmovilizacionContext ? 'ACTA_INMOVILIZACION' : 'ACTA_INCAUTACION';
   }
 
   return null;
@@ -106,9 +102,7 @@ export function detectActaType(
  * el acta como otro documento (p. ej. REQUERIMIENTO_FISCALIZACION por la palabra
  * "FISCALIZACIÓN" del encabezado) y no extraía ninguno de sus campos.
  */
-function detectActaForm(
-  text: string,
-): 'ACTA_INMOVILIZACION' | 'ACTA_INCAUTACION' | null {
+function detectActaForm(text: string): 'ACTA_INMOVILIZACION' | 'ACTA_INCAUTACION' | null {
   const normalized = text
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
@@ -144,7 +138,7 @@ function normalizeActaNumber(value: string): string {
 function normalizeDate(value: string): string {
   const trimmed = value.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-  return trimmed.replace(/[.\-]/g, '/');
+  return trimmed.replace(/[.-]/g, '/');
 }
 
 /**
@@ -159,9 +153,9 @@ function isPlausibleDate(value: string): boolean {
   const month = Number(match[2] ?? match[5]);
   const day = Number(match[3] ?? match[4]);
   const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year
-    && date.getUTCMonth() === month - 1
-    && date.getUTCDate() === day;
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
 }
 
 export function extractActaFields(text: string): Record<string, any> {
@@ -175,23 +169,36 @@ export function extractActaFields(text: string): Record<string, any> {
 
   const type = detectActaType(text) ?? detectActaForm(text);
   const fields: Record<string, any> = {
-    numeroActa: normalizeActaNumber(read([
-      /\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?acta\s*[:#-]?\s*([^\n,;]+)/i,
-      /\bacta\s*(?:n[uú]mero|nro\.?|n[°º])\s*[:#-]?\s*([^\n,;]+)/i,
-      // Título del acta: "ACTA DE INMOVILIZACIÓN - INCAUTACIÓN N° 235-0105-2020 - N° 000067".
-      /\bacta\b[\s\S]{0,120}?\bn\s*[°ºo0*]?\s*\.?\s*[:#-]?\s*(\d[\d\s]*(?:\s*[-–—]\s*\d{1,8}){0,4})/i,
-    ])),
-    tipoAccion: type === 'ACTA_INMOVILIZACION'
-      ? 'INMOVILIZACION'
-      : type === 'ACTA_INCAUTACION' ? 'INCAUTACION' : '',
-    fecha: normalizeDate(read([
-      /\bfecha\s*(?:de\s*acta)?\s*[:#-]?\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/i,
-      /\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})\b/,
-    ])),
+    numeroActa: normalizeActaNumber(
+      read([
+        /\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?acta\s*[:#-]?\s*([^\n,;]+)/i,
+        /\bacta\s*(?:n[uú]mero|nro\.?|n[°º])\s*[:#-]?\s*([^\n,;]+)/i,
+        // Título del acta: "ACTA DE INMOVILIZACIÓN - INCAUTACIÓN N° 235-0105-2020 - N° 000067".
+        /\bacta\b[\s\S]{0,120}?\bn\s*[°ºo0*]?\s*\.?\s*[:#-]?\s*(\d[\d\s]*(?:\s*[-–—]\s*\d{1,8}){0,4})/i,
+      ]),
+    ),
+    tipoAccion:
+      type === 'ACTA_INMOVILIZACION'
+        ? 'INMOVILIZACION'
+        : type === 'ACTA_INCAUTACION'
+          ? 'INCAUTACION'
+          : '',
+    fecha: normalizeDate(
+      read([
+        /\bfecha\s*(?:de\s*acta)?\s*[:#-]?\s*(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4})/i,
+        /\b(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{4})\b/,
+      ]),
+    ),
     hora: read([/\bhora\s*[:#-]?\s*(\d{1,2}:\d{2}(?::\d{2})?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)?)/i]),
-    numeroAccionControl: read([/\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?(?:acci[oó]n|control)\s*[:#-]?\s*([^\n,;]+)/i]),
-    lugarAccionControl: read([/\blugar\s+(?:de\s+la\s+)?acci[oó]n\s+(?:de\s+control)?\s*[:#-]?\s*([^\n]+)/i]),
-    apellidosNombres: read([/\b(?:apellidos\s+y\s+nombres|nombres\s+y\s+apellidos)\s*[:#-]?\s*([^\n]+)/i]),
+    numeroAccionControl: read([
+      /\b(?:n[uú]mero|nro\.?|n[°º])\s*(?:de\s*)?(?:acci[oó]n|control)\s*[:#-]?\s*([^\n,;]+)/i,
+    ]),
+    lugarAccionControl: read([
+      /\blugar\s+(?:de\s+la\s+)?acci[oó]n\s+(?:de\s+control)?\s*[:#-]?\s*([^\n]+)/i,
+    ]),
+    apellidosNombres: read([
+      /\b(?:apellidos\s+y\s+nombres|nombres\s+y\s+apellidos)\s*[:#-]?\s*([^\n]+)/i,
+    ]),
     razonSocial: read([/\b(?:raz[oó]n\s+social|empresa)\s*[:#-]?\s*([^\n]+)/i]),
     ruc: read([/\bruc\s*[:#-]?\s*(\d{11})/i]),
     domicilio: read([/\bdomicilio\s*[:#-]?\s*([^\n]+)/i]),
@@ -202,21 +209,33 @@ export function extractActaFields(text: string): Record<string, any> {
     procedencia: read([/\bprocedencia\s*[:#-]?\s*([^\n]+)/i]),
     destino: read([/\bdestino\s*[:#-]?\s*([^\n]+)/i]),
     documentoTransporte: read([/\bdocumento\s+de\s+transporte\s*[:#-]?\s*([^\n]+)/i]),
-    regimenOperacionAduanera: read([/\b(?:r[eé]gimen|operaci[oó]n)\s+(?:u\s+operaci[oó]n\s+)?aduanera\s*[:#-]?\s*([^\n]+)/i]),
+    regimenOperacionAduanera: read([
+      /\b(?:r[eé]gimen|operaci[oó]n)\s+(?:u\s+operaci[oó]n\s+)?aduanera\s*[:#-]?\s*([^\n]+)/i,
+    ]),
     numeroDeclaracion: read([/\b(?:n[uú]mero\s+de\s+)?declaraci[oó]n\s*[:#-]?\s*([^\n,;]+)/i]),
-    fundamentoHecho: read([/\bfundamento\s+de\s+hecho\s*[:#-]?\s*([\s\S]*?)(?=\n\s*fundamento\s+de\s+derecho\s*:|\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i]),
-    fundamentoDerecho: read([/\bfundamento\s+de\s+derecho\s*[:#-]?\s*([\s\S]*?)(?=\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i]),
+    fundamentoHecho: read([
+      /\bfundamento\s+de\s+hecho\s*[:#-]?\s*([\s\S]*?)(?=\n\s*fundamento\s+de\s+derecho\s*:|\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i,
+    ]),
+    fundamentoDerecho: read([
+      /\bfundamento\s+de\s+derecho\s*[:#-]?\s*([\s\S]*?)(?=\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i,
+    ]),
     bienes: [],
     peso: read([/\bpeso\s*[:#-]?\s*([^\n]+)/i]),
     lugarCustodia: read([/\blugar\s+de\s+custodia(?:\s+o\s+almacenamiento)?\s*[:#-]?\s*([^\n]+)/i]),
     observaciones: read([/\bobservaciones?\s*[:#-]?\s*([^\n]+)/i]),
   };
 
-  const itemPattern = /\bbien\s*(\d+)\s*[:#-]\s*([\s\S]*?)(?=\n\s*bien\s*\d+\s*[:#-]|\n\s*(?:peso|lugar de custodia|observaciones)\s*:|$)/gi;
+  const itemPattern =
+    /\bbien\s*(\d+)\s*[:#-]\s*([\s\S]*?)(?=\n\s*bien\s*\d+\s*[:#-]|\n\s*(?:peso|lugar de custodia|observaciones)\s*:|$)/gi;
   for (const match of text.matchAll(itemPattern)) {
     const content = match[2];
     const field = (label: string): string => {
-      const result = content.match(new RegExp(`${label}\\s*[:=]\\s*(.*?)(?=\\s+(?:cantidad|unidad(?:\\s+de\\s+medida)?|descripci[oó]n|observaciones)\\s*[:=]|$)`, 'i'));
+      const result = content.match(
+        new RegExp(
+          `${label}\\s*[:=]\\s*(.*?)(?=\\s+(?:cantidad|unidad(?:\\s+de\\s+medida)?|descripci[oó]n|observaciones)\\s*[:=]|$)`,
+          'i',
+        ),
+      );
       return result?.[1]?.trim() ?? '';
     };
     fields.bienes.push({
@@ -229,18 +248,24 @@ export function extractActaFields(text: string): Record<string, any> {
   }
 
   if (fields.bienes.length === 0) {
-    const goodsBlock = text.match(/\b(?:bienes|mercanc[ií]as)\s*:\s*([\s\S]*?)(?=\n\s*(?:peso|lugar de custodia|observaciones)\s*:|$)/i)?.[1] ?? '';
-    fields.bienes = goodsBlock.split(/\r?\n/).map((line, index) => {
-      const parts = line.split('|').map((part) => part.trim());
-      if (parts.length < 3) return null;
-      return {
-        numero: parts[0] || String(index + 1),
-        cantidad: parts[1] ?? '',
-        unidadMedida: parts[2] ?? '',
-        descripcion: parts[3] ?? '',
-        observaciones: parts[4] ?? '',
-      };
-    }).filter(Boolean);
+    const goodsBlock =
+      text.match(
+        /\b(?:bienes|mercanc[ií]as)\s*:\s*([\s\S]*?)(?=\n\s*(?:peso|lugar de custodia|observaciones)\s*:|$)/i,
+      )?.[1] ?? '';
+    fields.bienes = goodsBlock
+      .split(/\r?\n/)
+      .map((line, index) => {
+        const parts = line.split('|').map((part) => part.trim());
+        if (parts.length < 3) return null;
+        return {
+          numero: parts[0] || String(index + 1),
+          cantidad: parts[1] ?? '',
+          unidadMedida: parts[2] ?? '',
+          descripcion: parts[3] ?? '',
+          observaciones: parts[4] ?? '',
+        };
+      })
+      .filter(Boolean);
   }
 
   return fields;
@@ -248,7 +273,7 @@ export function extractActaFields(text: string): Record<string, any> {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 
@@ -262,11 +287,11 @@ function isActaType(tipoDocumento: string): boolean {
  */
 function compactFields(fields: Record<string, any>): Record<string, any> {
   return Object.fromEntries(
-    Object.entries(fields).filter(([key, value]) => (
+    Object.entries(fields).filter(([key, value]) =>
       key === 'bienes'
         ? Array.isArray(value) && value.length > 0
-        : value !== '' && value !== undefined && value !== null
-    )),
+        : value !== '' && value !== undefined && value !== null,
+    ),
   );
 }
 
@@ -349,21 +374,32 @@ function asStringRecord(value: unknown): Record<string, string> {
 function extractFields(text: string): Record<string, string> {
   const fields: Record<string, string> = {};
   const patterns: Record<string, RegExp> = {
-    contribuyente: /(?:raz[oó]n social\s*\/\s*nombre|identificaci[oó]n(?: del deudor| del contribuyente)?|deudor|contribuyente)\s*:\s*([^\n(]+)/i,
+    contribuyente:
+      /(?:raz[oó]n social\s*\/\s*nombre|identificaci[oó]n(?: del deudor| del contribuyente)?|deudor|contribuyente)\s*:\s*([^\n(]+)/i,
     ruc: /\bruc\s*[:#-]?\s*(\d{11})/i,
-    periodo: /\b(?:per[ií]odo fiscal|per[ií]odo(?: a declarar)?|ejercicio)\s*[:#-]?\s*(\d{2}\/\d{4}|\d{4})/i,
-    ingresos: /\b(?:total ingresos|ingresos(?: por ventas\/servicios| brutos)?)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
-    deducciones: /\b(?:total deducciones|deducci[oó]n principal|costo de ventas \+ gastos|gastos)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+    periodo:
+      /\b(?:per[ií]odo fiscal|per[ií]odo(?: a declarar)?|ejercicio)\s*[:#-]?\s*(\d{2}\/\d{4}|\d{4})/i,
+    ingresos:
+      /\b(?:total ingresos|ingresos(?: por ventas\/servicios| brutos)?)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+    deducciones:
+      /\b(?:total deducciones|deducci[oó]n principal|costo de ventas \+ gastos|gastos)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
     rentaNeta: /\brenta neta\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
-    tributoCalculado: /\b(?:tributo calculado|tributo sobre la renta|tributo determinado)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+    tributoCalculado:
+      /\b(?:tributo calculado|tributo sobre la renta|tributo determinado)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
     tributo: /\btributo\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
-    impuestoRenta: /\b(?:impuesto a la renta|impuesto sobre la renta)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+    impuestoRenta:
+      /\b(?:impuesto a la renta|impuesto sobre la renta)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
     igv: /\b(?:igv|tributo general de ventas)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
-    intereses: /\bintereses?(?: moratorios| hasta acogimiento)?\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
-    pagosCuenta: /\b(?:pagos? a cuenta realizados|pagos? a cuenta)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
-    saldoAPagar: /\bsaldo a pagar(?:\s*\/\s*a favor)?\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
-    totalDeuda: /\b(?:total deuda(?: a aplazar\/fraccionar)?|deuda total exigible|deuda total|monto total aprobado)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
-    fechaVencimiento: /\b(?:primer vencimiento|fecha de vencimiento|plazo de pago|vencimiento)\s*[:#-]?\s*(\d{1,2}\/\d{1,2}\/\d{4})/i,
+    intereses:
+      /\bintereses?(?: moratorios| hasta acogimiento)?\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+    pagosCuenta:
+      /\b(?:pagos? a cuenta realizados|pagos? a cuenta)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+    saldoAPagar:
+      /\bsaldo a pagar(?:\s*\/\s*a favor)?\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+    totalDeuda:
+      /\b(?:total deuda(?: a aplazar\/fraccionar)?|deuda total exigible|deuda total|monto total aprobado)\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+    fechaVencimiento:
+      /\b(?:primer vencimiento|fecha de vencimiento|plazo de pago|vencimiento)\s*[:#-]?\s*(\d{1,2}\/\d{1,2}\/\d{4})/i,
     numeroCuotas: /\b(?:fraccionamiento en|n[uú]mero de )?([0-9]+)\s+cuotas?/i,
     modalidad: /\bmodalidad\s*[:#-]?\s*([^\n,;]+)/i,
     condicion: /\bcondici[oó]n(?: actual)?\b\s*[:#-]?\s*([^\n,;]+)/i,
@@ -392,10 +428,14 @@ function extractFields(text: string): Record<string, string> {
     const periodMatch = text.match(/(?<!\d\/)(0[1-9]|1[0-2])\/20\d{2}/);
     if (periodMatch) fields.periodo = periodMatch[0];
   }
-  const totalIncomeMatch = text.match(/\btotal ingresos\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i);
+  const totalIncomeMatch = text.match(
+    /\btotal ingresos\s*(?:\([^)]*\))?\s*[:#-]?\s*((?:S\/\s*)?[\d,.]+)/i,
+  );
   if (totalIncomeMatch?.[1]) fields.ingresos = totalIncomeMatch[1].trim();
   if (!fields.totalDeuda) {
-    const totalMatch = text.match(/total deuda(?:\s+a\s+aplazar\/fraccionar|\s+exigible)?[\s\S]{0,80}?((?:S\/\s*)?[\d,.]+)/i);
+    const totalMatch = text.match(
+      /total deuda(?:\s+a\s+aplazar\/fraccionar|\s+exigible)?[\s\S]{0,80}?((?:S\/\s*)?[\d,.]+)/i,
+    );
     if (totalMatch?.[1]) fields.totalDeuda = totalMatch[1].trim();
   }
   if (!fields.fechaVencimiento && /vencimiento|cronograma|orden de pago/i.test(text)) {
@@ -409,20 +449,31 @@ function extractFields(text: string): Record<string, string> {
     if (ciiuMatch?.[1]) fields.ciiu = ciiuMatch[1];
   }
   if (!fields.fechaInicio) {
-    const startMatch = text.match(/fecha de inicio de actividades[\s\S]{0,80}?(\d{2}\/\d{2}\/\d{4})/i);
+    const startMatch = text.match(
+      /fecha de inicio de actividades[\s\S]{0,80}?(\d{2}\/\d{2}\/\d{4})/i,
+    );
     if (startMatch?.[1]) fields.fechaInicio = startMatch[1];
   }
   if (!fields.sistemas || /ficticios|simulaci[oó]n/i.test(fields.sistemas)) {
-    const accounting = text.match(/sistema de contabilidad[\s\S]{0,80}?\b(manual|computarizado)\b/i)?.[1];
-    const receipts = text.match(/sistema de emisi[oó]n de comprobantes[\s\S]{0,80}?\b(manual|electr[oó]nico|computarizado)\b/i)?.[1];
-    if (accounting || receipts) fields.sistemas = `Contabilidad: ${accounting ?? 'no identificada'}; comprobantes: ${receipts ?? 'no identificados'}`;
+    const accounting = text.match(
+      /sistema de contabilidad[\s\S]{0,80}?\b(manual|computarizado)\b/i,
+    )?.[1];
+    const receipts = text.match(
+      /sistema de emisi[oó]n de comprobantes[\s\S]{0,80}?\b(manual|electr[oó]nico|computarizado)\b/i,
+    )?.[1];
+    if (accounting || receipts)
+      fields.sistemas = `Contabilidad: ${accounting ?? 'no identificada'}; comprobantes: ${receipts ?? 'no identificados'}`;
   }
   if (fields.nombreVia && fields.numeroVia) {
-    fields.domicilioFiscal = `${fields.via ?? ''} ${fields.nombreVia} ${fields.numeroVia}${fields.distrito ? `, ${fields.distrito}` : ''}`.trim();
+    fields.domicilioFiscal =
+      `${fields.via ?? ''} ${fields.nombreVia} ${fields.numeroVia}${fields.distrito ? `, ${fields.distrito}` : ''}`.trim();
   }
-  fields.contribuyente = fields.contribuyente?.replace(/\s*\(.*/, '').trim() || fields.contribuyente;
-  if (fields.actividadEconomica && !fields.actividadPrincipal) fields.actividadPrincipal = fields.actividadEconomica;
-  if (/firmas?|firmado|firma del declarante/i.test(text)) fields.firmas = 'Presentes según el documento';
+  fields.contribuyente =
+    fields.contribuyente?.replace(/\s*\(.*/, '').trim() || fields.contribuyente;
+  if (fields.actividadEconomica && !fields.actividadPrincipal)
+    fields.actividadPrincipal = fields.actividadEconomica;
+  if (/firmas?|firmado|firma del declarante/i.test(text))
+    fields.firmas = 'Presentes según el documento';
   if (/pendiente/i.test(text)) fields.condicion = fields.condicion ?? 'Pendiente';
   return fields;
 }
@@ -435,7 +486,9 @@ function createExecutiveReport(
   const area = getAreaByDocumentType(tipoDocumento);
   const subject = campos.contribuyente
     ? `${campos.contribuyente}${campos.ruc ? ` (RUC: ${campos.ruc})` : ''}`
-    : campos.ruc ? `RUC ${campos.ruc}` : 'contribuyente no identificado';
+    : campos.ruc
+      ? `RUC ${campos.ruc}`
+      : 'contribuyente no identificado';
   const base = {
     tipoInforme: tipoDocumento,
     identificacion: {
@@ -454,37 +507,79 @@ function createExecutiveReport(
     case 'SOLICITUD_APLAZAMIENTO':
       return {
         ...base,
-        contexto: 'Documento que concede o solicita un beneficio de aplazamiento o fraccionamiento. El control debe centrarse en la vigencia, aceptación y cumplimiento del cronograma de pagos.',
+        contexto:
+          'Documento que concede o solicita un beneficio de aplazamiento o fraccionamiento. El control debe centrarse en la vigencia, aceptación y cumplimiento del cronograma de pagos.',
         estado: campos.condicion ?? 'Pendiente de verificación',
-        analisisCumplimiento: { beneficio: 'En curso o solicitado', control: 'Validar cuotas pagadas y próximo vencimiento' },
-        analisisRiesgo: { caducidad: 'MEDIO', observacion: 'La falta de firma, aceptación o pago puede dejar sin efecto el beneficio' },
-        accionesRequeridas: ['Validar firma del funcionario competente', 'Confirmar aceptación del deudor', 'Verificar el cronograma y el primer vencimiento'],
+        analisisCumplimiento: {
+          beneficio: 'En curso o solicitado',
+          control: 'Validar cuotas pagadas y próximo vencimiento',
+        },
+        analisisRiesgo: {
+          caducidad: 'MEDIO',
+          observacion: 'La falta de firma, aceptación o pago puede dejar sin efecto el beneficio',
+        },
+        accionesRequeridas: [
+          'Validar firma del funcionario competente',
+          'Confirmar aceptación del deudor',
+          'Verificar el cronograma y el primer vencimiento',
+        ],
       };
     case 'ORDEN_PAGO_OP':
       return {
         ...base,
-        contexto: 'Documento de requerimiento de pago utilizado para determinar una deuda tributaria exigible y evaluar el inicio de cobranza coactiva.',
+        contexto:
+          'Documento de requerimiento de pago utilizado para determinar una deuda tributaria exigible y evaluar el inicio de cobranza coactiva.',
         estado: 'Pendiente de pago',
         urgencia: campos.fechaVencimiento ? 'ALTA: revisar antes del vencimiento indicado' : 'ALTA',
-        analisisRiesgo: { exigibilidad: 'ALTA', observacion: 'El incumplimiento posterior al vencimiento puede activar cobranza coactiva' },
-        accionesRequeridas: ['Exigir la cancelación total', 'Validar deuda, intereses y fecha de vencimiento', 'Verificar el pago en el sistema antes de derivar a cobranza coactiva'],
+        analisisRiesgo: {
+          exigibilidad: 'ALTA',
+          observacion: 'El incumplimiento posterior al vencimiento puede activar cobranza coactiva',
+        },
+        accionesRequeridas: [
+          'Exigir la cancelación total',
+          'Validar deuda, intereses y fecha de vencimiento',
+          'Verificar el pago en el sistema antes de derivar a cobranza coactiva',
+        ],
       };
     case 'DECLARACION_JURADA_MENSUAL':
     case 'DECLARACION_JURADA_ANUAL':
       return {
         ...base,
-        contexto: 'Documento de autoliquidación del contribuyente. Sirve para verificar la consistencia entre ingresos, deducciones, tributo determinado y pagos realizados.',
-        analisisCumplimiento: { declaracion: 'Presentada según el documento', saldo: campos.saldoAPagar ? `Saldo pendiente: ${campos.saldoAPagar}` : 'Verificar saldo a pagar' },
-        analisisRiesgo: { consistencia: 'MEDIO', observacion: 'Cruzar ingresos y deducciones con facturación electrónica, bancos y declaraciones previas' },
-        accionesRequeridas: ['Validar firma del declarante y contador', 'Cruzar ingresos y deducciones con fuentes externas', 'Controlar el pago del saldo determinado'],
+        contexto:
+          'Documento de autoliquidación del contribuyente. Sirve para verificar la consistencia entre ingresos, deducciones, tributo determinado y pagos realizados.',
+        analisisCumplimiento: {
+          declaracion: 'Presentada según el documento',
+          saldo: campos.saldoAPagar
+            ? `Saldo pendiente: ${campos.saldoAPagar}`
+            : 'Verificar saldo a pagar',
+        },
+        analisisRiesgo: {
+          consistencia: 'MEDIO',
+          observacion:
+            'Cruzar ingresos y deducciones con facturación electrónica, bancos y declaraciones previas',
+        },
+        accionesRequeridas: [
+          'Validar firma del declarante y contador',
+          'Cruzar ingresos y deducciones con fuentes externas',
+          'Controlar el pago del saldo determinado',
+        ],
       };
     case 'SOLICITUD_INSCRIPCION_RUC':
     case 'ACTUALIZACION_RUC':
       return {
         ...base,
-        contexto: 'Documento registral que crea o actualiza la información del contribuyente en el RUC. La exactitud del domicilio y la actividad determina futuras obligaciones y notificaciones.',
-        analisisRiesgo: { fiscalizacion: campos.sistemas?.toLowerCase().includes('manual') ? 'ALTO' : 'MEDIO', observacion: 'Validar domicilio, actividad económica y régimen antes de emitir o actualizar el RUC' },
-        accionesRequeridas: ['Validar identidad y RUC', 'Confirmar domicilio fiscal y actividad económica', 'Verificar régimen tributario y sistemas declarados'],
+        contexto:
+          'Documento registral que crea o actualiza la información del contribuyente en el RUC. La exactitud del domicilio y la actividad determina futuras obligaciones y notificaciones.',
+        analisisRiesgo: {
+          fiscalizacion: campos.sistemas?.toLowerCase().includes('manual') ? 'ALTO' : 'MEDIO',
+          observacion:
+            'Validar domicilio, actividad económica y régimen antes de emitir o actualizar el RUC',
+        },
+        accionesRequeridas: [
+          'Validar identidad y RUC',
+          'Confirmar domicilio fiscal y actividad económica',
+          'Verificar régimen tributario y sistemas declarados',
+        ],
       };
     default:
       return {
@@ -494,10 +589,15 @@ function createExecutiveReport(
   }
 }
 
-function buildExecutiveSummary(tipoDocumento: SunatDocumentType, campos: Record<string, string>): string {
+function buildExecutiveSummary(
+  tipoDocumento: SunatDocumentType,
+  campos: Record<string, string>,
+): string {
   const subject = campos.contribuyente
     ? `${campos.contribuyente}${campos.ruc ? ` (RUC: ${campos.ruc})` : ''}`
-    : campos.ruc ? `RUC ${campos.ruc}` : 'contribuyente no identificado';
+    : campos.ruc
+      ? `RUC ${campos.ruc}`
+      : 'contribuyente no identificado';
   switch (tipoDocumento) {
     case 'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO':
     case 'RESOLUCION_FRACCIONAMIENTO':
@@ -518,7 +618,10 @@ function buildExecutiveSummary(tipoDocumento: SunatDocumentType, campos: Record<
 }
 
 function parseJsonResponse(raw: string): Record<string, unknown> {
-  const withoutMarkdown = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  const withoutMarkdown = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
   const firstBrace = withoutMarkdown.indexOf('{');
   const lastBrace = withoutMarkdown.lastIndexOf('}');
   if (firstBrace < 0 || lastBrace <= firstBrace) {
@@ -527,7 +630,10 @@ function parseJsonResponse(raw: string): Record<string, unknown> {
   return JSON.parse(withoutMarkdown.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>;
 }
 
-function normalizeClassificationResult(value: Record<string, unknown>, text: string): ClassificationResult {
+function normalizeClassificationResult(
+  value: Record<string, unknown>,
+  text: string,
+): ClassificationResult {
   const classifiedType = isDocumentType(value.tipoDocumento)
     ? value.tipoDocumento
     : 'DECLARACION_JURADA_MENSUAL';
@@ -535,9 +641,7 @@ function normalizeClassificationResult(value: Record<string, unknown>, text: str
   // no dependemos de que el modelo local acierte el tipoDocumento.
   const actaFromText = detectActaType(text) ?? detectActaForm(text);
   const isActa = isActaType(classifiedType) || actaFromText !== null;
-  const tipoDocumento = isActa
-    ? actaFromText ?? classifiedType
-    : classifiedType;
+  const tipoDocumento = isActa ? (actaFromText ?? classifiedType) : classifiedType;
   const populatedActaFields = isActa ? compactFields(extractActaFields(text)) : {};
   const camposBase = {
     ...extractFields(text),
@@ -560,9 +664,8 @@ function normalizeClassificationResult(value: Record<string, unknown>, text: str
   return {
     tipoDocumento,
     area: getAreaByDocumentType(tipoDocumento),
-    confianza: typeof value.confianza === 'number'
-      ? Math.max(0, Math.min(1, value.confianza))
-      : 0.5,
+    confianza:
+      typeof value.confianza === 'number' ? Math.max(0, Math.min(1, value.confianza)) : 0.5,
     campos,
     informeEjecutivo,
     resumenEjecutivo,
@@ -572,23 +675,53 @@ function normalizeClassificationResult(value: Record<string, unknown>, text: str
 export function classifyByKeywords(text: string): ClassificationResult {
   const lowerText = text.toLocaleLowerCase('es');
   const rules: Array<{ tipo: SunatDocumentType; keywords: string[] }> = [
-    { tipo: 'SOLICITUD_INSCRIPCION_RUC', keywords: ['formulario 2119', 'inscripción al ruc', 'actividad económica'] },
-    { tipo: 'ACTUALIZACION_RUC', keywords: ['formulario 2119', 'actualización', 'cambio de domicilio'] },
-    { tipo: 'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO', keywords: ['aplazamiento', 'fraccionamiento', 'res-frac'] },
-    { tipo: 'ORDEN_PAGO_OP', keywords: ['orden de pago', 'deuda exigible', 'fecha de vencimiento'] },
-    { tipo: 'DECLARACION_JURADA_MENSUAL', keywords: ['declaración jurada mensual', 'ingresos', 'saldo a pagar'] },
-    { tipo: 'DECLARACION_JURADA_ANUAL', keywords: ['declaración jurada anual', 'ejercicio', 'renta neta'] },
-    { tipo: 'RESOLUCION_FRACCIONAMIENTO', keywords: ['resolución de fraccionamiento', 'cuotas', 'plan de pagos'] },
+    {
+      tipo: 'SOLICITUD_INSCRIPCION_RUC',
+      keywords: ['formulario 2119', 'inscripción al ruc', 'actividad económica'],
+    },
+    {
+      tipo: 'ACTUALIZACION_RUC',
+      keywords: ['formulario 2119', 'actualización', 'cambio de domicilio'],
+    },
+    {
+      tipo: 'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO',
+      keywords: ['aplazamiento', 'fraccionamiento', 'res-frac'],
+    },
+    {
+      tipo: 'ORDEN_PAGO_OP',
+      keywords: ['orden de pago', 'deuda exigible', 'fecha de vencimiento'],
+    },
+    {
+      tipo: 'DECLARACION_JURADA_MENSUAL',
+      keywords: ['declaración jurada mensual', 'ingresos', 'saldo a pagar'],
+    },
+    {
+      tipo: 'DECLARACION_JURADA_ANUAL',
+      keywords: ['declaración jurada anual', 'ejercicio', 'renta neta'],
+    },
+    {
+      tipo: 'RESOLUCION_FRACCIONAMIENTO',
+      keywords: ['resolución de fraccionamiento', 'cuotas', 'plan de pagos'],
+    },
     { tipo: 'RESOLUCION_APLAZAMIENTO', keywords: ['aplazamiento', 'cronograma'] },
-    { tipo: 'RESOLUCION_DETERMINACION_RD', keywords: ['resolución de determinación', 'deuda tributaria'] },
+    {
+      tipo: 'RESOLUCION_DETERMINACION_RD',
+      keywords: ['resolución de determinación', 'deuda tributaria'],
+    },
     { tipo: 'RESOLUCION_MULTA_RM', keywords: ['resolución de multa', 'infracción', 'sanción'] },
     { tipo: 'REQUERIMIENTO_FISCALIZACION', keywords: ['requerimiento', 'fiscalización'] },
-    { tipo: 'AUDITORIA_LIBROS', keywords: ['libros contables', 'libro de ventas', 'libro de compras'] },
+    {
+      tipo: 'AUDITORIA_LIBROS',
+      keywords: ['libros contables', 'libro de ventas', 'libro de compras'],
+    },
     { tipo: 'CARTA_PRESENTACION', keywords: ['carta de presentación'] },
     { tipo: 'NOTIFICACION_ELECTRONICA', keywords: ['notificación electrónica', 'buzón sunat'] },
   ];
   const best = rules
-    .map((rule) => ({ ...rule, score: rule.keywords.filter((keyword) => lowerText.includes(keyword)).length }))
+    .map((rule) => ({
+      ...rule,
+      score: rule.keywords.filter((keyword) => lowerText.includes(keyword)).length,
+    }))
     .sort((left, right) => right.score - left.score)[0];
   const keywordType = best?.score ? best.tipo : 'DECLARACION_JURADA_MENSUAL';
   // Para actas: primero la casilla marcada; si el OCR no la lee, el título del
@@ -654,10 +787,12 @@ function postJson(
       (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-        res.on('end', () => resolve({
-          status: res.statusCode ?? 0,
-          body: Buffer.concat(chunks).toString('utf8'),
-        }));
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString('utf8'),
+          }),
+        );
       },
     );
     const abort = (): void => {
@@ -697,9 +832,8 @@ export function buildGeminiRequestBody(
   options: ClassifyOptions = {},
 ): { contents: unknown[]; generationConfig: Record<string, unknown> } {
   const { compact = false, maxPredict } = options;
-  const maxOutputTokens = maxPredict && maxPredict > 0
-    ? maxPredict
-    : (compact ? 1024 : DEFAULT_MAX_OUTPUT_TOKENS);
+  const maxOutputTokens =
+    maxPredict && maxPredict > 0 ? maxPredict : compact ? 1024 : DEFAULT_MAX_OUTPUT_TOKENS;
   return {
     contents: [
       {
@@ -756,9 +890,10 @@ async function classifyWithGemini(
     if (payload.error?.message) throw new Error(`Gemini: ${payload.error.message}`);
     const content = extractGeminiText(payload);
     if (!content.trim()) {
-      const reason = payload.candidates?.[0]?.finishReason
-        ?? payload.promptFeedback?.blockReason
-        ?? 'sin candidatos';
+      const reason =
+        payload.candidates?.[0]?.finishReason ??
+        payload.promptFeedback?.blockReason ??
+        'sin candidatos';
       throw new Error(`Gemini devolvió una respuesta vacía (${reason})`);
     }
     return normalizeClassificationResult(parseJsonResponse(content), text);
@@ -809,7 +944,10 @@ export async function classifyWithOllama(
   try {
     return await classifyWithOllamaStrict(text, options);
   } catch (error) {
-    console.warn('[IA] Ollama no disponible; se usa fallback local:', error instanceof Error ? error.message : error);
+    console.warn(
+      '[IA] Ollama no disponible; se usa fallback local:',
+      error instanceof Error ? error.message : error,
+    );
     return classifyByKeywords(text);
   }
 }

@@ -21,7 +21,12 @@ function normalize(str: string): string {
     .trim();
 }
 
-function resolveStorageUrl(supabase: ReturnType<typeof getSupabaseClient>, docId: string, fileName: string, existingUrl?: string | null): string {
+function resolveStorageUrl(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  docId: string,
+  fileName: string,
+  existingUrl?: string | null,
+): string {
   if (existingUrl && existingUrl.startsWith('http')) {
     return existingUrl;
   }
@@ -62,7 +67,8 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
     const supabase = getSupabaseClient();
     const { data: rawDocs, error } = await supabase
       .from('documents')
-      .select(`
+      .select(
+        `
         id,
         file_name,
         storage_url,
@@ -81,7 +87,8 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
           target_area,
           derivation_reason
         )
-      `)
+      `,
+      )
       .order('upload_date', { ascending: false })
       .limit(40);
 
@@ -92,17 +99,24 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
 
     const docs: EnrichedDoc[] = rawDocs.map((d: any) => ({
       ...d,
-      document_analysis: Array.isArray(d.document_analysis) ? d.document_analysis[0] : d.document_analysis,
-      document_derivations: Array.isArray(d.document_derivations) ? d.document_derivations[0] : d.document_derivations,
+      document_analysis: Array.isArray(d.document_analysis)
+        ? d.document_analysis[0]
+        : d.document_analysis,
+      document_derivations: Array.isArray(d.document_derivations)
+        ? d.document_derivations[0]
+        : d.document_derivations,
       extracted_metadata: Array.isArray(d.extracted_metadata) ? d.extracted_metadata : [],
     }));
 
     const normalizedQuery = normalize(query);
-    const tokens = normalizedQuery.split(/\s+/).filter(t => t.length > 2);
+    const tokens = normalizedQuery.split(/\s+/).filter((t) => t.length > 2);
 
     // Detectar si es una pregunta general o de listado
-    const isGeneralQuery = tokens.length === 0 ||
-      /^(hola|buen|que tal|documentos|que hay|cuales|resumen|todos|listar|mostrar|ayuda)/i.test(query.trim());
+    const isGeneralQuery =
+      tokens.length === 0 ||
+      /^(hola|buen|que tal|documentos|que hay|cuales|resumen|todos|listar|mostrar|ayuda)/i.test(
+        query.trim(),
+      );
 
     if (isGeneralQuery) {
       // Devolver los 6 documentos más recientes
@@ -110,7 +124,7 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
     }
 
     // Puntuar documentos según relevancia con la consulta
-    const scoredDocs = docs.map(doc => {
+    const scoredDocs = docs.map((doc) => {
       let score = 0;
       const fileNameNorm = normalize(doc.file_name);
       const categoryNorm = normalize(doc.document_analysis?.document_category || '');
@@ -127,7 +141,7 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
           const valNorm = normalize(meta.field_value || '');
           if (valNorm.includes(token)) {
             // Coincidencia exacta con RUC u otro metadato clave tiene gran peso
-            score += (/^\d{8,11}$/.test(token) ? 30 : 15);
+            score += /^\d{8,11}$/.test(token) ? 30 : 15;
           }
         }
       }
@@ -138,7 +152,7 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
     scoredDocs.sort((a, b) => b.score - a.score);
 
     // Filtrar documentos que tienen coincidencia; si ninguno tiene puntuación > 0, tomar los 4 más recientes
-    const matches = scoredDocs.filter(s => s.score > 0).map(s => s.doc);
+    const matches = scoredDocs.filter((s) => s.score > 0).map((s) => s.doc);
     const selectedDocs = matches.length > 0 ? matches.slice(0, 6) : docs.slice(0, 4);
 
     // Si el usuario pregunta por el contenido exacto de un archivo específico, intentar leerlo del bucket
@@ -147,13 +161,17 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
       try {
         const ext = (topDoc.file_name.split('.').pop() || '').toLowerCase();
         const storagePath = `${topDoc.id}.${ext}`;
-        const { data: fileBlob } = await supabase.storage.from(STORAGE_BUCKET).download(storagePath);
+        const { data: fileBlob } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .download(storagePath);
 
         if (fileBlob) {
           const buffer = Buffer.from(await fileBlob.arrayBuffer());
           let mime: SupportedMimeType = 'application/pdf';
-          if (ext === 'docx' || ext === 'docm') mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-          else if (ext === 'xlsx') mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+          if (ext === 'docx' || ext === 'docm')
+            mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          else if (ext === 'xlsx')
+            mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
           const { text } = await extractText(buffer, mime, topDoc.file_name);
           if (text) {
@@ -270,7 +288,7 @@ router.post('/stream', async (req: Request, res: Response) => {
     const relevantDocs = await searchRelevantDocuments(message);
 
     // 2. Construir tarjetas de documentos para el frontend
-    const toolResults = relevantDocs.map(doc => ({
+    const toolResults = relevantDocs.map((doc) => ({
       nombre: doc.file_name,
       tipoDocumento: doc.document_analysis?.document_category || 'DOCUMENTO_SUNAT',
       area: doc.document_derivations?.target_area || 'Área Administrativa',
@@ -279,16 +297,19 @@ router.post('/stream', async (req: Request, res: Response) => {
 
     // Enviar evento 'tool_results' al frontend (compatible con la vista de Chatbot.jsx)
     if (toolResults.length > 0) {
-      res.write(`data: ${JSON.stringify({
-        type: 'tool_results',
-        results: [{ results: toolResults }]
-      })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'tool_results',
+          results: [{ results: toolResults }],
+        })}\n\n`,
+      );
     }
 
     // 3. Formatear el contexto para el LLM de Ollama
     let contextText = '';
     if (relevantDocs.length > 0) {
-      contextText += 'DOCUMENTOS REGISTRADOS EN SUPABASE (BUCKET "DocumentosIA" Y BASE DE DATOS):\n';
+      contextText +=
+        'DOCUMENTOS REGISTRADOS EN SUPABASE (BUCKET "DocumentosIA" Y BASE DE DATOS):\n';
       relevantDocs.forEach((doc, idx) => {
         contextText += `\n--- [DOCUMENTO #${idx + 1}] ---\n`;
         contextText += `Nombre de archivo: ${doc.file_name}\n`;
@@ -300,8 +321,8 @@ router.post('/stream', async (req: Request, res: Response) => {
         }
         if (doc.extracted_metadata && doc.extracted_metadata.length > 0) {
           const fields = doc.extracted_metadata
-            .filter(m => m.field_value && m.field_value.trim().length > 0)
-            .map(m => `${m.field_name}: ${m.field_value}`)
+            .filter((m) => m.field_value && m.field_value.trim().length > 0)
+            .map((m) => `${m.field_name}: ${m.field_value}`)
             .join(' | ');
           if (fields) contextText += `Campos y datos clave: ${fields}\n`;
         }
@@ -327,18 +348,18 @@ INSTRUCCIONES CLAVE:
 5. Sé conciso pero completo en tus explicaciones. Evita respuestas vacías o evasivas.`;
 
     // Historial limpio para Ollama
-    const sanitizedHistory = (history || [])
-      .filter((h: any) => h && h.role && h.content)
-      .slice(-6); // Mantener los últimos 6 turnos para no sobrecargar el contexto
+    const sanitizedHistory = (history || []).filter((h: any) => h && h.role && h.content).slice(-6); // Mantener los últimos 6 turnos para no sobrecargar el contexto
 
     const messages = [
       { role: 'system', content: systemPrompt },
       ...sanitizedHistory,
-      { role: 'user', content: message }
+      { role: 'user', content: message },
     ];
 
     const usingGemini = geminiConfigured();
-    console.log(`[Chat Stream] Enviando prompt a ${usingGemini ? `Gemini (${GEMINI_MODEL})` : `Ollama (${OLLAMA_MODEL}) en ${OLLAMA_HOST}`}...`);
+    console.log(
+      `[Chat Stream] Enviando prompt a ${usingGemini ? `Gemini (${GEMINI_MODEL})` : `Ollama (${OLLAMA_MODEL}) en ${OLLAMA_HOST}`}...`,
+    );
 
     let emitted = false;
     const onDelta: DeltaHandler = (content) => {
@@ -352,7 +373,10 @@ INSTRUCCIONES CLAVE:
       } catch (error) {
         // Solo se puede reintentar con Ollama si Gemini no alcanzó a emitir texto.
         if (emitted) throw error;
-        console.warn('[Chat Stream] Gemini falló; se usa Ollama como respaldo:', error instanceof Error ? error.message : error);
+        console.warn(
+          '[Chat Stream] Gemini falló; se usa Ollama como respaldo:',
+          error instanceof Error ? error.message : error,
+        );
         await streamFromOllama(messages, onDelta);
       }
     } else {
@@ -363,7 +387,8 @@ INSTRUCCIONES CLAVE:
     res.end();
   } catch (error) {
     console.error('[Chat Stream] Error:', error);
-    const errorMsg = error instanceof Error ? error.message : 'Error desconocido al procesar el mensaje';
+    const errorMsg =
+      error instanceof Error ? error.message : 'Error desconocido al procesar el mensaje';
     res.write(`data: ${JSON.stringify({ type: 'error', error: errorMsg })}\n\n`);
     res.end();
   }

@@ -12,7 +12,9 @@ export const documentWorker = new Worker(
   DOCUMENT_QUEUE_NAME,
   async (job) => {
     try {
-      console.log(`[Worker] 🚀 Iniciando job ${job.id} (${job.name}). Intento ${job.attemptsMade + 1}`);
+      console.log(
+        `[Worker] 🚀 Iniciando job ${job.id} (${job.name}). Intento ${job.attemptsMade + 1}`,
+      );
 
       if (job.name === MOBILE_JOB_NAME) {
         const result = await processMobileDocument(job.data);
@@ -24,18 +26,24 @@ export const documentWorker = new Worker(
       console.log(`[Worker] ✅ Job ${job.id} completado exitosamente.`);
       return result;
     } catch (error) {
-      console.error(`[Worker] ❌ Error en job ${job.id}.`, error instanceof Error ? error.message : error);
+      console.error(
+        `[Worker] ❌ Error en job ${job.id}.`,
+        error instanceof Error ? error.message : error,
+      );
       throw error; // Importante para que BullMQ aplique el backoff
     }
   },
   {
     connection,
     concurrency: 1, // Protege tu RAM de 16GB
-  }
+  },
 );
 
 documentWorker.on('failed', (job, err) => {
-  console.error(`[Worker] 🚨 ALERTA: Job ${job?.id} falló definitivamente tras ${job?.attemptsMade} intentos.`, err.message);
+  console.error(
+    `[Worker] 🚨 ALERTA: Job ${job?.id} falló definitivamente tras ${job?.attemptsMade} intentos.`,
+    err.message,
+  );
 });
 
 console.log('✅ Document worker is running and listening for jobs...');

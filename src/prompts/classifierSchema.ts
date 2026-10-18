@@ -125,5 +125,11 @@ export const FULL_RESPONSE_SCHEMA = {
     },
   },
   required: ['tipoDocumento', 'confianza', 'campos', 'resumenEjecutivo'],
-  propertyOrdering: ['tipoDocumento', 'confianza', 'campos', 'resumenEjecutivo', 'informeEjecutivo'],
+  propertyOrdering: [
+    'tipoDocumento',
+    'confianza',
+    'campos',
+    'resumenEjecutivo',
+    'informeEjecutivo',
+  ],
 };

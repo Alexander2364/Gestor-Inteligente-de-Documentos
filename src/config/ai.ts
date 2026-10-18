@@ -30,7 +30,11 @@ function boolFromEnv(raw: string | undefined, fallback: boolean): boolean {
 /** gemini (forzar) | ollama (forzar) | auto (Gemini si hay clave, si no Ollama). */
 export const AI_PROVIDER: AiProvider = normalizeProvider(process.env.IA_PROVIDER);
 
-export const GEMINI_API_KEY = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim();
+export const GEMINI_API_KEY = (
+  process.env.GEMINI_API_KEY ??
+  process.env.GOOGLE_API_KEY ??
+  ''
+).trim();
 export const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite';
 export const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS ?? 45000);
 export const GEMINI_API_BASE = (
