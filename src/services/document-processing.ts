@@ -1,5 +1,5 @@
 import { extractText, SupportedMimeType } from './extractor';
-import { classifyWithOllama } from './ia';
+import { classifyDocument } from './ia';
 import { DocumentJobData, DocumentJobResult, MobileDocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
 import type { Document, DocumentAnalysis, ExtractedMetadata, DocumentDerivation } from '../types/supabase';
@@ -129,8 +129,8 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
       throw new Error('No se pudo extraer texto suficiente del documento');
     }
 
-    // 3. Clasificar y analizar con Ollama (Llama 3.1)
-    const result = await classifyWithOllama(text);
+    // 3. Clasificar y analizar con el proveedor de IA configurado (Gemini/Ollama)
+    const result = await classifyDocument(text);
 
     // 4. Actualizar estado a completed en documents
     await supabase
@@ -282,8 +282,8 @@ export async function processDocumentById(documentId: string): Promise<Record<st
       throw new Error(`Texto insuficiente extraído de ${doc.file_name}`);
     }
 
-    // Clasificar con Ollama
-    const result = await classifyWithOllama(text);
+    // Clasificar con el proveedor de IA configurado (Gemini/Ollama)
+    const result = await classifyDocument(text);
 
     // Actualizar storage_url si faltaba
     let storageUrl = doc.storage_url;

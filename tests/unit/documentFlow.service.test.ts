@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
 	preprocessMobileImageMock,
 	extractTextMock,
-	classifyWithOllamaMock,
+	classifyDocumentMock,
 	getTemplatePathMock,
 	getDocumentTemplateMock,
 	readFileMock,
@@ -13,7 +13,7 @@ const {
 } = vi.hoisted(() => ({
 	preprocessMobileImageMock: vi.fn(),
 	extractTextMock: vi.fn(),
-	classifyWithOllamaMock: vi.fn(),
+	classifyDocumentMock: vi.fn(),
 	getTemplatePathMock: vi.fn(),
 	getDocumentTemplateMock: vi.fn(),
 	readFileMock: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock('../../src/services/extractor', () => ({
 	preprocessMobileImage: preprocessMobileImageMock,
 	extractTextFromPreprocessedImage: extractTextMock,
 }));
-vi.mock('../../src/services/ia', () => ({ classifyWithOllama: classifyWithOllamaMock }));
+vi.mock('../../src/services/ia', () => ({ classifyDocument: classifyDocumentMock }));
 vi.mock('../../src/domain/templates/index', () => ({ getTemplatePath: getTemplatePathMock }));
 vi.mock('../../src/domain/templates', () => ({ getDocumentTemplate: getDocumentTemplateMock }));
 vi.mock('node:fs/promises', () => ({ readFile: readFileMock }));
@@ -45,7 +45,7 @@ describe('documentFlow.service', () => {
 		vi.clearAllMocks();
 		preprocessMobileImageMock.mockResolvedValue(Buffer.from('processed'));
 		extractTextMock.mockResolvedValue('texto del acta');
-		classifyWithOllamaMock.mockResolvedValue({
+		classifyDocumentMock.mockResolvedValue({
 			tipoDocumento: 'ACTA_INMOVILIZACION',
 			confianza: 0.9,
 			campos: { numeroActa: 'ACT-001' },
@@ -70,7 +70,7 @@ describe('documentFlow.service', () => {
 		});
 		expect(preprocessMobileImageMock).toHaveBeenCalledWith(Buffer.from('image'));
 		expect(extractTextMock).toHaveBeenCalledWith(Buffer.from('processed'));
-		expect(classifyWithOllamaMock).toHaveBeenCalledWith(
+		expect(classifyDocumentMock).toHaveBeenCalledWith(
 			'texto del acta',
 			expect.objectContaining({ compact: true }),
 		);

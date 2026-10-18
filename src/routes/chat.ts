@@ -1,10 +1,16 @@
 import { Router, Request, Response } from 'express';
 import { getSupabaseClient } from '../config/supabase';
 import { extractText, SupportedMimeType } from '../services/extractor';
+import {
+  GEMINI_API_BASE,
+  GEMINI_API_KEY,
+  GEMINI_MODEL,
+  OLLAMA_HOST,
+  OLLAMA_MODEL,
+  geminiConfigured,
+} from '../config/ai';
 
 const router = Router();
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:3b';
 const STORAGE_BUCKET = 'DocumentosIA';
 
 function normalize(str: string): string {
@@ -169,6 +175,80 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
 /**
  * Endpoint de streaming SSE para el chatbot con RAG de Supabase
  */
+
+type DeltaHandler = (chunk: string) => void;
+
+/** Lee un stream HTTP y entrega las líneas completas (maneja cortes entre chunks). */
+async function consumeStream(
+  body: ReadableStream<Uint8Array> | null,
+  onLine: (line: string) => void,
+): Promise<void> {
+  const reader = body?.getReader();
+  if (!reader) throw new Error('No se pudo abrir el stream de lectura del proveedor');
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) onLine(line);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) onLine(buffer);
+}
+
+/** Gemini vía endpoint OpenAI-compatible (SSE `data: {...}`). */
+async function streamFromGemini(messages: unknown, onDelta: DeltaHandler): Promise<void> {
+  const response = await fetch(`${GEMINI_API_BASE}/openai/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${GEMINI_API_KEY}`,
+    },
+    body: JSON.stringify({ model: GEMINI_MODEL, messages, stream: true }),
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Error de Gemini (${response.status}): ${errText || response.statusText}`);
+  }
+  await consumeStream(response.body, (line) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === '[DONE]') return;
+    try {
+      const parsed = JSON.parse(data);
+      const content = parsed.choices?.[0]?.delta?.content;
+      if (content) onDelta(content);
+    } catch {
+      // Ignorar fragmentos no parseables
+    }
+  });
+}
+
+/** Ollama `/api/chat` (NDJSON, un objeto JSON por línea). */
+async function streamFromOllama(messages: unknown, onDelta: DeltaHandler): Promise<void> {
+  const response = await fetch(`${OLLAMA_HOST}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: OLLAMA_MODEL, messages, stream: true }),
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Error de Ollama (${response.status}): ${errText || response.statusText}`);
+  }
+  await consumeStream(response.body, (line) => {
+    if (!line.trim()) return;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.message?.content) onDelta(parsed.message.content);
+    } catch {
+      // Ignorar líneas no parseables
+    }
+  });
+}
 router.post('/stream', async (req: Request, res: Response) => {
   try {
     const { message, history } = req.body;
@@ -257,53 +337,29 @@ INSTRUCCIONES CLAVE:
       { role: 'user', content: message }
     ];
 
-    console.log(`[Chat Stream] Enviando prompt a Ollama (${OLLAMA_MODEL}) en ${OLLAMA_HOST}...`);
+    const usingGemini = geminiConfigured();
+    console.log(`[Chat Stream] Enviando prompt a ${usingGemini ? `Gemini (${GEMINI_MODEL})` : `Ollama (${OLLAMA_MODEL}) en ${OLLAMA_HOST}`}...`);
 
-    const response = await fetch(`${OLLAMA_HOST}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages: messages,
-        stream: true,
-      }),
-    });
+    let emitted = false;
+    const onDelta: DeltaHandler = (content) => {
+      emitted = true;
+      res.write(`data: ${JSON.stringify({ type: 'content', content })}\n\n`);
+    };
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      throw new Error(`Error de Ollama (${response.status}): ${errText || response.statusText}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('No se pudo abrir el stream de lectura de Ollama');
-    }
-
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        res.write('data: {"type": "done"}\n\n');
-        break;
+    if (usingGemini) {
+      try {
+        await streamFromGemini(messages, onDelta);
+      } catch (error) {
+        // Solo se puede reintentar con Ollama si Gemini no alcanzó a emitir texto.
+        if (emitted) throw error;
+        console.warn('[Chat Stream] Gemini falló; se usa Ollama como respaldo:', error instanceof Error ? error.message : error);
+        await streamFromOllama(messages, onDelta);
       }
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const parsed = JSON.parse(line);
-          if (parsed.message?.content) {
-            res.write(`data: ${JSON.stringify({ type: 'content', content: parsed.message.content })}\n\n`);
-          }
-        } catch {
-          // Ignorar líneas no parseables
-        }
-      }
+    } else {
+      await streamFromOllama(messages, onDelta);
     }
 
+    res.write('data: {"type": "done"}\n\n');
     res.end();
   } catch (error) {
     console.error('[Chat Stream] Error:', error);
