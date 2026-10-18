@@ -49,6 +49,26 @@ Ejemplos:
 
 `docs: actualizar README`
 
+
+Nuevas Funcionalidades
+-Despliegue de la Plataforma en Contenedores 
+El núcleo del backend ha sido empaquetado utilizando Docker. Como se evidencia en el archivo Dockerfile en la raíz del repositorio, el entorno de Node.js se construye con todas las dependencias necesarias del sistema (incluyendo librerías para el manejo de imágenes y OCR).
+
+-Flujo de Captura y Recepción de Datos 
+
+El dispositivo móvil o cámara actúa como el nodo físico que digitaliza el documento. Una vez capturada la fotografía, esta se envía a la API contenida en nuestro backend. 
+
+-Preprocesamiento de Imágenes y OCR (Extracción) 
+
+Una fotografía de un documento físico suele tener ruido, mala iluminación o perspectivas distorsionadas. El código aborda este problema antes de la extracción de texto:
+
+-Procesamiento por IA y Persistencia de Datos 
+
+El ciclo del procesamiento culmina con la interpretación inteligente y el almacenamiento:
+
+
+
+
 `chore: actualizar dependencias`
 
 **Si no usan este estándar, les rechazo el PR.**
