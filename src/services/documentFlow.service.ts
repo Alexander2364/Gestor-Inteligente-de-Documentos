@@ -8,10 +8,14 @@ import { uploadFile } from './storage.service';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
-export type DocumentFlowStage = 'preprocessing' | 'ocr' | 'classification' | 'template' | 'pdf' | 'storage' | 'database';
+export type DocumentFlowStage =
+  'preprocessing' | 'ocr' | 'classification' | 'template' | 'pdf' | 'storage' | 'database';
 
 export class DocumentFlowError extends Error {
-  constructor(public readonly stage: DocumentFlowStage, message: string) {
+  constructor(
+    public readonly stage: DocumentFlowStage,
+    message: string,
+  ) {
     super(message);
     this.name = 'DocumentFlowError';
   }
@@ -37,19 +41,28 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Error desconocido';
 }
 
-export async function scanMobileDocument(buffer: Buffer, mimeType: string): Promise<ScannedDocument> {
+export async function scanMobileDocument(
+  buffer: Buffer,
+  mimeType: string,
+): Promise<ScannedDocument> {
   let processedBuffer: Buffer;
   try {
     processedBuffer = await preprocessMobileImage(buffer);
   } catch (error) {
-    throw new DocumentFlowError('preprocessing', `No se pudo mejorar la imagen: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'preprocessing',
+      `No se pudo mejorar la imagen: ${getErrorMessage(error)}`,
+    );
   }
 
   let text: string;
   try {
     text = await extractTextFromPreprocessedImage(processedBuffer);
   } catch (error) {
-    throw new DocumentFlowError('ocr', `No se pudo transcribir la imagen: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'ocr',
+      `No se pudo transcribir la imagen: ${getErrorMessage(error)}`,
+    );
   }
 
   try {
@@ -62,7 +75,10 @@ export async function scanMobileDocument(buffer: Buffer, mimeType: string): Prom
       resumenEjecutivo: result.resumenEjecutivo,
     };
   } catch (error) {
-    throw new DocumentFlowError('classification', `No se pudo clasificar el documento: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'classification',
+      `No se pudo clasificar el documento: ${getErrorMessage(error)}`,
+    );
   }
 }
 
@@ -93,7 +109,10 @@ export async function buildDocumentPdf(
     const html = await readFile(templatePath, 'utf8');
     filledHtml = fillTemplate(html, datos);
   } catch (error) {
-    throw new DocumentFlowError('template', `No se pudo preparar la plantilla: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'template',
+      `No se pudo preparar la plantilla: ${getErrorMessage(error)}`,
+    );
   }
 
   let pdf: Buffer;
@@ -108,6 +127,9 @@ export async function buildDocumentPdf(
     const url = await uploadFile(pdf, key, 'application/pdf');
     return { url, tipoDocumento, area: template.area };
   } catch (error) {
-    throw new DocumentFlowError('storage', `No se pudo guardar el PDF en el bucket: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'storage',
+      `No se pudo guardar el PDF en el bucket: ${getErrorMessage(error)}`,
+    );
   }
 }

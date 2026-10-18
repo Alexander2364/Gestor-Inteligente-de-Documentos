@@ -76,7 +76,12 @@ const resolucionFraccionamientoFields: TemplateField[] = [
   { nombre: 'ruc', label: 'RUC', tipo: 'text' },
   { nombre: 'razonSocial', label: 'Razon social', tipo: 'text' },
   { nombre: 'totalDeuda', label: 'Total deuda', tipo: 'text' },
-  { nombre: 'modalidad', label: 'Modalidad', tipo: 'select', opciones: ['FRACCIONAMIENTO', 'APLAZAMIENTO'] },
+  {
+    nombre: 'modalidad',
+    label: 'Modalidad',
+    tipo: 'select',
+    opciones: ['FRACCIONAMIENTO', 'APLAZAMIENTO'],
+  },
   { nombre: 'numeroCuotas', label: 'Numero de cuotas', tipo: 'text' },
   { nombre: 'fechaVencimiento', label: 'Fecha primer vencimiento', tipo: 'text' },
   { nombre: 'cronograma', label: 'Cronograma de pagos', tipo: 'array' },

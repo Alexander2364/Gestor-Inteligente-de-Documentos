@@ -1,0 +1,14 @@
+# Configuración de Gitleaks: extiende las reglas por defecto y añade una
+# allowlist para ficheros de ejemplo y artefactos generados.
+[extend]
+useDefault = true
+
+[allowlist]
+description = 'Ficheros de ejemplo y artefactos que no contienen secretos reales'
+paths = [
+  '''\.env\.example$''',
+  '''package-lock\.json$''',
+  '''node_modules/''',
+  '''dist/''',
+  '''graphify-out/''',
+]

@@ -15,7 +15,7 @@ export function createApp() {
     'http://localhost',
     'http://localhost:80',
     'http://127.0.0.1',
-    'http://127.0.0.1:80'
+    'http://127.0.0.1:80',
   ];
 
   app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -24,15 +24,17 @@ export function createApp() {
   });
 
   // 2. Configurar CORS para permitir acceso local y desde cualquier dispositivo de la red (LAN)
-  app.use(cors({ 
-    origin: (origin, callback) => {
-      // Permitir solicitudes sin origen (curl, Postman, server-to-server) o cualquier origen web
-      callback(null, true);
-    },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-  }));
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // Permitir solicitudes sin origen (curl, Postman, server-to-server) o cualquier origen web
+        callback(null, true);
+      },
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+      credentials: true,
+    }),
+  );
 
   app.use(express.json());
 

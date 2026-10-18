@@ -8,12 +8,14 @@ router.get('/', async (_req: Request, res: Response) => {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('documents')
-      .select(`
+      .select(
+        `
         *,
         document_analysis (*),
         document_derivations (*),
         extracted_metadata (*)
-      `)
+      `,
+      )
       .order('upload_date', { ascending: false });
 
     if (error) return res.status(500).json({ error: error.message });
@@ -48,12 +50,14 @@ router.get('/search', async (req: Request, res: Response) => {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('documents')
-      .select(`
+      .select(
+        `
         *,
         document_analysis (*),
         document_derivations (*),
         extracted_metadata (*)
-      `)
+      `,
+      )
       .ilike('file_name', `%${q}%`)
       .order('upload_date', { ascending: false });
 
@@ -85,12 +89,14 @@ router.get('/:id', async (req: Request, res: Response) => {
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from('documents')
-    .select(`
+    .select(
+      `
       *,
       document_analysis (*),
       extracted_metadata (*),
       document_derivations (*)
-    `)
+    `,
+    )
     .eq('id', id)
     .single();
 
@@ -102,7 +108,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/process-pending', async (req: Request, res: Response) => {
   try {
     const { documentId } = req.body || {};
-    const { processDocumentById, processAllPendingDocuments } = await import('../services/document-processing');
+    const { processDocumentById, processAllPendingDocuments } =
+      await import('../services/document-processing');
 
     if (documentId) {
       const result = await processDocumentById(documentId);
@@ -113,7 +120,9 @@ router.post('/process-pending', async (req: Request, res: Response) => {
     return res.json({ success: true, processedCount: results.length, results });
   } catch (error) {
     console.error('[Route Process Pending] Error:', error);
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Error procesando documentos pendientes' });
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Error procesando documentos pendientes',
+    });
   }
 });
 

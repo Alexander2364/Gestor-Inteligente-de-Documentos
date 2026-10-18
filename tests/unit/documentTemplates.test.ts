@@ -22,7 +22,9 @@ describe('plantillas de documentos tributarios', () => {
     const html = readFileSync(templatePath as string, 'utf8');
     const $ = load(html);
     expect($('form.documento').length).toBe(1);
-    expect($('input, select, textarea').filter((_index, element) => !$(element).attr('name'))).toHaveLength(0);
+    expect(
+      $('input, select, textarea').filter((_index, element) => !$(element).attr('name')),
+    ).toHaveLength(0);
   });
 
   it('incluye las secciones requeridas de la declaracion mensual', () => {

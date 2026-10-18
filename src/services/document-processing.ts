@@ -2,7 +2,12 @@ import { extractText, SupportedMimeType } from './extractor';
 import { classifyDocument } from './ia';
 import { DocumentJobData, DocumentJobResult, MobileDocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
-import type { Document, DocumentAnalysis, ExtractedMetadata, DocumentDerivation } from '../types/supabase';
+import type {
+  Document,
+  DocumentAnalysis,
+  ExtractedMetadata,
+  DocumentDerivation,
+} from '../types/supabase';
 import { getAreaByDocumentType, getDestinationEmailByDocumentType } from '../domain/sunat/areas';
 import { buildDocumentPdf, scanMobileDocument } from './documentFlow.service';
 import { validateDocumentData } from '../domain/templates/validators';
@@ -12,7 +17,8 @@ const STORAGE_BUCKET = 'DocumentosIA';
 function getMimeTypeFromFileName(fileName: string): SupportedMimeType {
   const ext = fileName.split('.').pop()?.toLowerCase();
   switch (ext) {
-    case 'pdf': return 'application/pdf';
+    case 'pdf':
+      return 'application/pdf';
     case 'docx':
     case 'docm':
     case 'dotx':
@@ -20,16 +26,27 @@ function getMimeTypeFromFileName(fileName: string): SupportedMimeType {
     case 'xlsx':
     case 'xlsm':
       return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    case 'png': return 'image/png';
+    case 'png':
+      return 'image/png';
     case 'jpg':
-    case 'jpeg': return 'image/jpeg';
-    case 'tiff': return 'image/tiff';
-    case 'bmp': return 'image/bmp';
-    default: return 'application/pdf';
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'tiff':
+      return 'image/tiff';
+    case 'bmp':
+      return 'image/bmp';
+    default:
+      return 'application/pdf';
   }
 }
 
-async function uploadToStorage(supabase: ReturnType<typeof getSupabaseClient>, documentId: string, fileName: string, fileBase64: string, mimeType: string): Promise<string | null> {
+async function uploadToStorage(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  documentId: string,
+  fileName: string,
+  fileBase64: string,
+  mimeType: string,
+): Promise<string | null> {
   try {
     const buffer = Buffer.from(fileBase64, 'base64');
     const fileExt = fileName.split('.').pop() || 'bin';
@@ -47,9 +64,7 @@ async function uploadToStorage(supabase: ReturnType<typeof getSupabaseClient>, d
       return null;
     }
 
-    const { data: urlData } = supabase.storage
-      .from(STORAGE_BUCKET)
-      .getPublicUrl(storagePath);
+    const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
 
     return urlData.publicUrl;
   } catch (error) {
@@ -62,17 +77,22 @@ async function uploadToStorage(supabase: ReturnType<typeof getSupabaseClient>, d
  * Notifica a n8n cuando un documento ha sido analizado y guardado en Supabase
  */
 export async function notifyN8n(payload: Record<string, any>): Promise<void> {
-  const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL || 'http://n8n:5678/webhook/documento-analizado';
+  const n8nWebhookUrl =
+    process.env.N8N_WEBHOOK_URL || 'http://n8n:5678/webhook/documento-analizado';
   try {
     const res = await fetch(n8nWebhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    console.log(`[n8n Webhook] Notificación enviada exitosamente a ${n8nWebhookUrl} (Status: ${res.status})`);
+    console.log(
+      `[n8n Webhook] Notificación enviada exitosamente a ${n8nWebhookUrl} (Status: ${res.status})`,
+    );
   } catch (err) {
     // Si n8n no está escuchando o no tiene el webhook activo, registramos warning sin detener el flujo
-    console.log(`[n8n Webhook] Aviso: n8n no recibió webhook en ${n8nWebhookUrl} (${err instanceof Error ? err.message : 'inactivo'}). Continuará por Supabase polling.`);
+    console.log(
+      `[n8n Webhook] Aviso: n8n no recibió webhook en ${n8nWebhookUrl} (${err instanceof Error ? err.message : 'inactivo'}). Continuará por Supabase polling.`,
+    );
   }
 }
 
@@ -100,7 +120,7 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
           file_name: fileName,
           processing_status: 'processing',
           upload_date: new Date().toISOString(),
-          ...(userId ? { user_id: userId } : {})
+          ...(userId ? { user_id: userId } : {}),
         },
       ])
       .select();
@@ -115,10 +135,7 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
     let storageUrl: string | null = null;
     storageUrl = await uploadToStorage(supabase, documentId!, fileName, fileBase64, mimeType);
     if (storageUrl) {
-      await supabase
-        .from('documents')
-        .update({ storage_url: storageUrl })
-        .eq('id', documentId);
+      await supabase.from('documents').update({ storage_url: storageUrl }).eq('id', documentId);
     }
 
     // 2. Extraer texto
@@ -139,31 +156,27 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
       .eq('id', documentId);
 
     // 5. Insertar en document_analysis
-    await supabase
-      .from('document_analysis')
-      .insert([
-        {
-          document_id: documentId,
-          document_category: result.tipoDocumento,
-          confidence_percentage: result.confianza,
-          ai_summary: result.resumenEjecutivo,
-          processed_at: new Date().toISOString(),
-        },
-      ]);
+    await supabase.from('document_analysis').insert([
+      {
+        document_id: documentId,
+        document_category: result.tipoDocumento,
+        confidence_percentage: result.confianza,
+        ai_summary: result.resumenEjecutivo,
+        processed_at: new Date().toISOString(),
+      },
+    ]);
 
     // 6. Insertar metadatos extraídos
     if (result.campos) {
       const metadataPromises = Object.entries(result.campos).map(([field, value]) => {
-        return supabase
-          .from('extracted_metadata')
-          .insert([
-            {
-              document_id: documentId,
-              field_name: field,
-              field_value: String(value || ''),
-              confidence: 100,
-            },
-          ]);
+        return supabase.from('extracted_metadata').insert([
+          {
+            document_id: documentId,
+            field_name: field,
+            field_value: String(value || ''),
+            confidence: 100,
+          },
+        ]);
       });
       await Promise.all(metadataPromises);
     }
@@ -211,7 +224,6 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
       derivacion: `Derivado a ${result.area}`,
       storageUrl,
     };
-
   } catch (error) {
     console.error('Error general en processDocument:', error);
     if (documentId) {
@@ -243,16 +255,15 @@ export async function processDocumentById(documentId: string): Promise<Record<st
     .single();
 
   if (fetchErr || !doc) {
-    throw new Error(`Documento con ID ${documentId} no encontrado en Supabase: ${fetchErr?.message}`);
+    throw new Error(
+      `Documento con ID ${documentId} no encontrado en Supabase: ${fetchErr?.message}`,
+    );
   }
 
   console.log(`[ProcessDocById] Procesando documento existente: ${doc.file_name} (${doc.id})`);
 
   // Marcar como 'processing'
-  await supabase
-    .from('documents')
-    .update({ processing_status: 'processing' })
-    .eq('id', doc.id);
+  await supabase.from('documents').update({ processing_status: 'processing' }).eq('id', doc.id);
 
   try {
     const ext = doc.file_name.split('.').pop() || 'bin';
@@ -270,7 +281,9 @@ export async function processDocumentById(documentId: string): Promise<Record<st
     }
 
     if (!fileBlob) {
-      throw new Error(`El archivo no fue encontrado en el bucket "${STORAGE_BUCKET}" con path ${storagePathWithId} ni con ${doc.file_name}`);
+      throw new Error(
+        `El archivo no fue encontrado en el bucket "${STORAGE_BUCKET}" con path ${storagePathWithId} ni con ${doc.file_name}`,
+      );
     }
 
     const buffer = Buffer.from(await fileBlob.arrayBuffer());
@@ -324,15 +337,18 @@ export async function processDocumentById(documentId: string): Promise<Record<st
 
     // Insertar document_derivations con status 'PENDING'
     let derivationId: string | undefined;
-    const { data: derivationData } = await supabase.from('document_derivations').insert([
-      {
-        document_id: doc.id,
-        target_area: result.area,
-        derivation_reason: `Derivación automática basada en clasificación: ${result.tipoDocumento}`,
-        status: 'PENDING',
-        created_at: new Date().toISOString(),
-      },
-    ]).select();
+    const { data: derivationData } = await supabase
+      .from('document_derivations')
+      .insert([
+        {
+          document_id: doc.id,
+          target_area: result.area,
+          derivation_reason: `Derivación automática basada en clasificación: ${result.tipoDocumento}`,
+          status: 'PENDING',
+          created_at: new Date().toISOString(),
+        },
+      ])
+      .select();
 
     if (derivationData && derivationData.length > 0) {
       derivationId = derivationData[0].id;
@@ -355,7 +371,9 @@ export async function processDocumentById(documentId: string): Promise<Record<st
       fecha: new Date().toISOString(),
     });
 
-    console.log(`[ProcessDocById] ✅ Documento ${doc.file_name} procesado y clasificado exitosamente como ${result.tipoDocumento}`);
+    console.log(
+      `[ProcessDocById] ✅ Documento ${doc.file_name} procesado y clasificado exitosamente como ${result.tipoDocumento}`,
+    );
 
     return {
       id: doc.id,
@@ -386,7 +404,9 @@ export async function processAllPendingDocuments(): Promise<any[]> {
     return [];
   }
 
-  console.log(`[ProcessPending] Encontrados ${pendingDocs.length} documentos pendientes para procesar.`);
+  console.log(
+    `[ProcessPending] Encontrados ${pendingDocs.length} documentos pendientes para procesar.`,
+  );
   const results = [];
 
   for (const doc of pendingDocs) {
@@ -411,18 +431,22 @@ export async function processAllPendingDocuments(): Promise<any[]> {
  * generado queda en Storage y se devuelve/notifica, pero NO se registra como fila
  * de `documents` para no mezclar entrada y salida en la misma tabla.
  */
-export async function processMobileDocument(jobData: DocumentJobData): Promise<MobileDocumentJobResult> {
+export async function processMobileDocument(
+  jobData: DocumentJobData,
+): Promise<MobileDocumentJobResult> {
   const supabase = getSupabaseClient();
   const buffer = Buffer.from(jobData.fileBase64, 'base64');
 
   // 1. Registrar el documento de entrada (la captura) en `documents`.
   const { data: documentData, error: docError } = await supabase
     .from('documents')
-    .insert([{
-      file_name: jobData.fileName,
-      processing_status: 'processing',
-      upload_date: new Date().toISOString(),
-    }])
+    .insert([
+      {
+        file_name: jobData.fileName,
+        processing_status: 'processing',
+        upload_date: new Date().toISOString(),
+      },
+    ])
     .select();
 
   if (docError) {
@@ -449,7 +473,9 @@ export async function processMobileDocument(jobData: DocumentJobData): Promise<M
     // 4. Validación NO bloqueante: el PDF se genera igual, para revisión humana.
     const validation = validateDocumentData(result.tipoDocumento, result.datos);
     if (!validation.valido) {
-      console.warn(`[MobileJob] Validación con observaciones: ${validation.errores.join('. ') || 'sin detalle'}`);
+      console.warn(
+        `[MobileJob] Validación con observaciones: ${validation.errores.join('. ') || 'sin detalle'}`,
+      );
       console.warn(`[MobileJob] Campos extraídos: ${JSON.stringify(result.datos)}`);
     }
 
@@ -457,40 +483,49 @@ export async function processMobileDocument(jobData: DocumentJobData): Promise<M
     const generated = await buildDocumentPdf(result.tipoDocumento, result.datos);
 
     // 6. Marcar el documento de entrada como completado.
-    await supabase.from('documents').update({ processing_status: 'completed' }).eq('id', documentId);
+    await supabase
+      .from('documents')
+      .update({ processing_status: 'completed' })
+      .eq('id', documentId);
 
     // 7. Registrar el análisis.
-    await supabase.from('document_analysis').insert([{
-      document_id: documentId,
-      document_category: result.tipoDocumento,
-      confidence_percentage: result.confianza,
-      ai_summary: result.resumenEjecutivo,
-      processed_at: new Date().toISOString(),
-    }]);
+    await supabase.from('document_analysis').insert([
+      {
+        document_id: documentId,
+        document_category: result.tipoDocumento,
+        confidence_percentage: result.confianza,
+        ai_summary: result.resumenEjecutivo,
+        processed_at: new Date().toISOString(),
+      },
+    ]);
 
     // 8. Registrar los metadatos extraídos.
     await Promise.all(
-      Object.entries(result.datos ?? {}).map(([field, value]) => supabase
-        .from('extracted_metadata')
-        .insert([{
-          document_id: documentId,
-          field_name: field,
-          field_value: serializeFieldValue(value),
-          confidence: 100,
-        }])),
+      Object.entries(result.datos ?? {}).map(([field, value]) =>
+        supabase.from('extracted_metadata').insert([
+          {
+            document_id: documentId,
+            field_name: field,
+            field_value: serializeFieldValue(value),
+            confidence: 100,
+          },
+        ]),
+      ),
     );
 
     // 9. Derivación en estado PENDING para que n8n sepa que debe notificarla.
     const area = getAreaByDocumentType(result.tipoDocumento);
     const { data: derivationData } = await supabase
       .from('document_derivations')
-      .insert([{
-        document_id: documentId,
-        target_area: area,
-        derivation_reason: `Derivación automática basada en clasificación: ${result.tipoDocumento}`,
-        status: 'PENDING',
-        created_at: new Date().toISOString(),
-      }])
+      .insert([
+        {
+          document_id: documentId,
+          target_area: area,
+          derivation_reason: `Derivación automática basada en clasificación: ${result.tipoDocumento}`,
+          status: 'PENDING',
+          created_at: new Date().toISOString(),
+        },
+      ])
       .select();
     const derivationId = derivationData?.[0]?.id;
 

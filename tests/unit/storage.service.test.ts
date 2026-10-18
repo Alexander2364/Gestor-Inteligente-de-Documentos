@@ -25,7 +25,9 @@ describe('uploadFile', () => {
     });
     uploadMock.mockResolvedValue({ error: null });
     getPublicUrlMock.mockReturnValue({
-      data: { publicUrl: 'https://demo.supabase.co/storage/v1/object/public/DocumentosIA/acta.pdf' },
+      data: {
+        publicUrl: 'https://demo.supabase.co/storage/v1/object/public/DocumentosIA/acta.pdf',
+      },
     });
   });
 
@@ -45,8 +47,9 @@ describe('uploadFile', () => {
   it('propaga un error legible cuando Supabase rechaza la subida', async () => {
     uploadMock.mockResolvedValue({ error: { message: 'Bucket no encontrado' } });
 
-    await expect(uploadFile(Buffer.from('pdf'), 'acta.pdf', 'application/pdf'))
-      .rejects.toThrow('No se pudo subir el archivo a Supabase Storage: Bucket no encontrado');
+    await expect(uploadFile(Buffer.from('pdf'), 'acta.pdf', 'application/pdf')).rejects.toThrow(
+      'No se pudo subir el archivo a Supabase Storage: Bucket no encontrado',
+    );
     expect(getPublicUrlMock).not.toHaveBeenCalled();
   });
 });

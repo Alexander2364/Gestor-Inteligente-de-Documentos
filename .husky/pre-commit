@@ -1,0 +1,11 @@
+# Ejecuta lint + formato solo sobre los archivos preparados (staged).
+npx lint-staged
+
+# Escaneo de secretos si gitleaks está instalado localmente.
+# La misma comprobación corre siempre en CI, así que no bloqueará el commit si falta.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --no-banner --config .gitleaks.toml
+  # gitleaks >= 8.19: el subcomando equivalente es `gitleaks git --staged`.
+else
+  echo "[pre-commit] gitleaks no está instalado localmente; se validará en CI."
+fi
