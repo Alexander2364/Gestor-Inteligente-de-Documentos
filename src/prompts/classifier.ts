@@ -70,7 +70,7 @@ Texto (máx 2500 chars):
 /**
  * Variante compacta del prompt para el flujo de escaneo con cámara (hardware sin GPU).
  * Pide solo tipoDocumento, confianza, campos y resumenEjecutivo: se omite la clave
- * `informeEjecutivo`, que el backend reconstruye localmente en `normalizeOllamaResult`
+ * `informeEjecutivo`, que el backend reconstruye localmente en `normalizeClassificationResult`
  * a partir de `createExecutiveReport`. Así el modelo genera muchos menos tokens y
  * termina dentro del timeout en vez de divagar hasta los 10 minutos.
  */

@@ -1,6 +1,22 @@
 import http from 'node:http';
 import https from 'node:https';
 import { buildCompactClassifierPrompt, buildClassifierPrompt } from '../prompts/classifier';
+import {
+  CLASSIFIER_TYPE_NAMES,
+  COMPACT_RESPONSE_SCHEMA,
+  FULL_RESPONSE_SCHEMA,
+} from '../prompts/classifierSchema';
+import {
+  GEMINI_API_BASE,
+  GEMINI_API_KEY,
+  GEMINI_MODEL,
+  GEMINI_THINKING_LEVEL,
+  GEMINI_TIMEOUT_MS,
+  OLLAMA_HOST,
+  OLLAMA_MODEL,
+  OLLAMA_TIMEOUT_MS,
+  providerChain,
+} from '../config/ai';
 import { getAreaByDocumentType } from '../domain/sunat/areas';
 
 export type SunatDocumentType =
@@ -46,19 +62,9 @@ export interface ClassificationResult {
   resumenEjecutivo: string;
 }
 
-const OLLAMA_HOST = process.env.OLLAMA_HOST ?? 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'llama3.2:3b';
-const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 180000);
+// La configuración de proveedores (Gemini/Ollama) vive en `src/config/ai.ts`.
 
-const VALID_TYPES: SunatDocumentType[] = [
-  'DECLARACION_JURADA_MENSUAL', 'DECLARACION_JURADA_ANUAL',
-  'RESOLUCION_FRACCIONAMIENTO', 'RESOLUCION_APLAZAMIENTO', 'ORDEN_PAGO_OP',
-  'SOLICITUD_INSCRIPCION_RUC', 'ACTUALIZACION_RUC', 'RESOLUCION_DETERMINACION_RD',
-  'RESOLUCION_MULTA_RM', 'REQUERIMIENTO_FISCALIZACION', 'AUDITORIA_LIBROS',
-  'CARTA_PRESENTACION', 'NOTIFICACION_ELECTRONICA', 'SOLICITUD_APLAZAMIENTO',
-  'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO', 'ACTA_INMOVILIZACION',
-  'ACTA_INCAUTACION',
-];
+const VALID_TYPES: SunatDocumentType[] = [...CLASSIFIER_TYPE_NAMES] as SunatDocumentType[];
 
 function isDocumentType(value: unknown): value is SunatDocumentType {
   return typeof value === 'string' && VALID_TYPES.includes(value as SunatDocumentType);
@@ -516,12 +522,12 @@ function parseJsonResponse(raw: string): Record<string, unknown> {
   const firstBrace = withoutMarkdown.indexOf('{');
   const lastBrace = withoutMarkdown.lastIndexOf('}');
   if (firstBrace < 0 || lastBrace <= firstBrace) {
-    throw new Error('Ollama no devolvió un objeto JSON');
+    throw new Error('El modelo no devolvió un objeto JSON');
   }
   return JSON.parse(withoutMarkdown.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>;
 }
 
-function normalizeOllamaResult(value: Record<string, unknown>, text: string): ClassificationResult {
+function normalizeClassificationResult(value: Record<string, unknown>, text: string): ClassificationResult {
   const classifiedType = isDocumentType(value.tipoDocumento)
     ? value.tipoDocumento
     : 'DECLARACION_JURADA_MENSUAL';
@@ -611,11 +617,12 @@ export function classifyByKeywords(text: string): ClassificationResult {
 /**
  * POST JSON usando node:http/https en lugar del fetch global (undici).
  * El fetch de undici aplica headersTimeout/bodyTimeout de 300s por defecto, lo que
- * aborta las generaciones largas de Ollama ("fetch failed") mucho antes que OLLAMA_TIMEOUT_MS.
+ * aborta las generaciones largas ("fetch failed") mucho antes que nuestro timeout.
  * Con node:http deshabilitamos ese tope y el único límite es nuestro AbortController.
  */
-function postJsonToOllama(
+function postJson(
   urlStr: string,
+  headers: Record<string, string>,
   body: unknown,
   timeoutMs: number,
   signal: AbortSignal,
@@ -625,7 +632,7 @@ function postJsonToOllama(
     try {
       target = new URL(urlStr);
     } catch {
-      reject(new Error(`URL de Ollama inválida: ${urlStr}`));
+      reject(new Error(`URL inválida: ${urlStr}`));
       return;
     }
     const isHttps = target.protocol === 'https:';
@@ -641,6 +648,7 @@ function postJsonToOllama(
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(data),
+          ...headers,
         },
       },
       (res) => {
@@ -667,23 +675,110 @@ function postJsonToOllama(
   });
 }
 
-export interface ClassifyOllamaOptions {
+export interface ClassifyOptions {
   /** Pide un esquema compacto (sin `informeEjecutivo`) para reducir la generación. */
   compact?: boolean;
-  /** Tope de tokens a generar (`num_predict`). Acota el peor caso para no agotar el timeout. */
+  /** Tope de tokens a generar (Ollama `num_predict` / Gemini `maxOutputTokens`). */
   maxPredict?: number;
 }
 
-export async function classifyWithOllama(
+/** Alias retrocompatible del nombre anterior. */
+export type ClassifyOllamaOptions = ClassifyOptions;
+
+const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
+
+/**
+ * Cuerpo de la petición a `generateContent` de Gemini. Función pura para poder
+ * probarla sin red. Usa "structured output" (`responseSchema`) y razonamiento
+ * mínimo para gastar la menor cantidad de tokens posible.
+ */
+export function buildGeminiRequestBody(
   text: string,
-  options: ClassifyOllamaOptions = {},
+  options: ClassifyOptions = {},
+): { contents: unknown[]; generationConfig: Record<string, unknown> } {
+  const { compact = false, maxPredict } = options;
+  const maxOutputTokens = maxPredict && maxPredict > 0
+    ? maxPredict
+    : (compact ? 1024 : DEFAULT_MAX_OUTPUT_TOKENS);
+  return {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: compact ? buildCompactClassifierPrompt(text) : buildClassifierPrompt(text) },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens,
+      responseMimeType: 'application/json',
+      responseSchema: compact ? COMPACT_RESPONSE_SCHEMA : FULL_RESPONSE_SCHEMA,
+      thinkingConfig: { thinkingLevel: GEMINI_THINKING_LEVEL },
+    },
+  };
+}
+
+interface GeminiPayload {
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string }> };
+    finishReason?: string;
+  }>;
+  promptFeedback?: { blockReason?: string };
+  error?: { message?: string };
+}
+
+/** Concatena las partes de texto del primer candidato de Gemini. */
+export function extractGeminiText(payload: GeminiPayload): string {
+  const parts = payload.candidates?.[0]?.content?.parts ?? [];
+  return parts.map((part) => part.text ?? '').join('');
+}
+
+async function classifyWithGemini(
+  text: string,
+  options: ClassifyOptions,
+): Promise<ClassificationResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  try {
+    const { contents, generationConfig } = buildGeminiRequestBody(text, options);
+    const { status, body } = await postJson(
+      `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`,
+      { 'x-goog-api-key': GEMINI_API_KEY },
+      { contents, generationConfig },
+      GEMINI_TIMEOUT_MS,
+      controller.signal,
+    );
+    if (status !== 200) {
+      throw new Error(`Gemini respondió HTTP ${status}: ${body.slice(0, 300)}`);
+    }
+    const payload = JSON.parse(body) as GeminiPayload;
+    if (payload.error?.message) throw new Error(`Gemini: ${payload.error.message}`);
+    const content = extractGeminiText(payload);
+    if (!content.trim()) {
+      const reason = payload.candidates?.[0]?.finishReason
+        ?? payload.promptFeedback?.blockReason
+        ?? 'sin candidatos';
+      throw new Error(`Gemini devolvió una respuesta vacía (${reason})`);
+    }
+    return normalizeClassificationResult(parseJsonResponse(content), text);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Variante estricta: propaga el error para que la cadena pruebe el siguiente proveedor. */
+async function classifyWithOllamaStrict(
+  text: string,
+  options: ClassifyOptions,
 ): Promise<ClassificationResult> {
   const { compact = false, maxPredict } = options;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
   try {
-    const { status, body } = await postJsonToOllama(
+    const { status, body } = await postJson(
       `${OLLAMA_HOST}/api/generate`,
+      {},
       {
         model: OLLAMA_MODEL,
         prompt: compact ? buildCompactClassifierPrompt(text) : buildClassifierPrompt(text),
@@ -700,11 +795,42 @@ export async function classifyWithOllama(
     if (status !== 200) throw new Error(`Ollama respondió HTTP ${status}`);
     const payload = JSON.parse(body) as { response?: string };
     if (!payload.response) throw new Error('Ollama devolvió una respuesta vacía');
-    return normalizeOllamaResult(parseJsonResponse(payload.response), text);
-  } catch (error) {
-    console.warn('[IA] Ollama no disponible; se usa fallback local:', error instanceof Error ? error.message : error);
-    return classifyByKeywords(text);
+    return normalizeClassificationResult(parseJsonResponse(payload.response), text);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Clasifica solo con Ollama y cae al clasificador local si falla. */
+export async function classifyWithOllama(
+  text: string,
+  options: ClassifyOptions = {},
+): Promise<ClassificationResult> {
+  try {
+    return await classifyWithOllamaStrict(text, options);
+  } catch (error) {
+    console.warn('[IA] Ollama no disponible; se usa fallback local:', error instanceof Error ? error.message : error);
+    return classifyByKeywords(text);
+  }
+}
+
+/**
+ * Clasificación con la cadena de proveedores configurada (Gemini → Ollama →
+ * palabras clave). Es el punto de entrada que deben usar los flujos de documentos.
+ */
+export async function classifyDocument(
+  text: string,
+  options: ClassifyOptions = {},
+): Promise<ClassificationResult> {
+  for (const provider of providerChain()) {
+    try {
+      return provider === 'gemini'
+        ? await classifyWithGemini(text, options)
+        : await classifyWithOllamaStrict(text, options);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[IA] Proveedor ${provider} falló; se intenta el siguiente: ${message}`);
+    }
+  }
+  return classifyByKeywords(text);
 }

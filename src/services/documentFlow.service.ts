@@ -2,7 +2,7 @@ import { getDocumentTemplate } from '../domain/templates';
 import { getTemplatePath } from '../domain/templates/index';
 import { fillTemplate } from '../domain/templates/templateFiller';
 import { extractTextFromPreprocessedImage, preprocessMobileImage } from './extractor';
-import { classifyWithOllama } from './ia';
+import { classifyDocument } from './ia';
 import { htmlToPdf } from './documentGenerator.service';
 import { uploadFile } from './storage.service';
 import { readFile } from 'node:fs/promises';
@@ -25,11 +25,13 @@ export interface ScannedDocument {
 }
 
 /**
- * Tope de tokens para el flujo de cámara. En hardware sin GPU (~2 tok/s) acota el
- * peor caso a ~6 min, por debajo del timeout de Ollama, y evita que el modelo
- * divague hasta agotar los 10 minutos.
+ * Tope de tokens para el flujo de cámara: acota la salida del modelo (Ollama
+ * `num_predict` / Gemini `maxOutputTokens`) para que no divague hasta agotar el
+ * timeout en hardware sin GPU.
  */
-const MOBILE_MAX_PREDICT = Number(process.env.OLLAMA_MOBILE_MAX_PREDICT ?? 768);
+const MOBILE_MAX_PREDICT = Number(
+  process.env.IA_MOBILE_MAX_TOKENS ?? process.env.OLLAMA_MOBILE_MAX_PREDICT ?? 768,
+);
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Error desconocido';
@@ -51,8 +53,8 @@ export async function scanMobileDocument(buffer: Buffer, mimeType: string): Prom
   }
 
   try {
-    // Esquema compacto + tope de tokens para que el modelo termine a tiempo en CPU.
-    const result = await classifyWithOllama(text, { compact: true, maxPredict: MOBILE_MAX_PREDICT });
+    // Esquema compacto + tope de tokens para acotar la generación del proveedor.
+    const result = await classifyDocument(text, { compact: true, maxPredict: MOBILE_MAX_PREDICT });
     return {
       tipoDocumento: result.tipoDocumento,
       confianza: result.confianza,
