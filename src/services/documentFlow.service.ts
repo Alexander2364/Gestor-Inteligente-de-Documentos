@@ -5,7 +5,6 @@ import { extractTextFromPreprocessedImage, preprocessMobileImage } from './extra
 import { classifyWithOllama } from './ia';
 import { htmlToPdf } from './documentGenerator.service';
 import { uploadFile } from './storage.service';
-import { saveDocumentoGenerado } from './database.service';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
@@ -23,12 +22,6 @@ export interface ScannedDocument {
   confianza: number;
   datos: Record<string, unknown>;
   resumenEjecutivo: string;
-}
-
-export interface GeneratedDocument {
-  url: string;
-  documentoId: string;
-  tipoDocumento: string;
 }
 
 /**
@@ -71,10 +64,22 @@ export async function scanMobileDocument(buffer: Buffer, mimeType: string): Prom
   }
 }
 
-export async function generateDocument(
+export interface BuiltDocument {
+  url: string;
+  tipoDocumento: string;
+  area: string;
+}
+
+/**
+ * Rellena la plantilla, genera el PDF y lo sube a Storage, SIN tocar la base de
+ * datos. La tabla `documents` representa el documento de ENTRADA, por lo que el
+ * PDF generado (salida) nunca se registra como fila: queda en Storage y se
+ * devuelve al cliente / se envía a n8n.
+ */
+export async function buildDocumentPdf(
   tipoDocumento: string,
   datos: Record<string, unknown>,
-): Promise<GeneratedDocument> {
+): Promise<BuiltDocument> {
   const templatePath = getTemplatePath(tipoDocumento);
   const template = getDocumentTemplate(tipoDocumento);
   if (!templatePath || !template) {
@@ -97,17 +102,10 @@ export async function generateDocument(
   }
 
   const key = `generated/${tipoDocumento}/${randomUUID()}.pdf`;
-  let url: string;
   try {
-    url = await uploadFile(pdf, key, 'application/pdf');
+    const url = await uploadFile(pdf, key, 'application/pdf');
+    return { url, tipoDocumento, area: template.area };
   } catch (error) {
     throw new DocumentFlowError('storage', `No se pudo guardar el PDF en el bucket: ${getErrorMessage(error)}`);
-  }
-
-  try {
-    const document = await saveDocumentoGenerado(tipoDocumento, template.area, datos, url);
-    return { url, documentoId: document.id, tipoDocumento };
-  } catch (error) {
-    throw new DocumentFlowError('database', `No se pudo registrar el documento: ${getErrorMessage(error)}`);
   }
 }

@@ -3,8 +3,8 @@ import { classifyWithOllama } from './ia';
 import { DocumentJobData, DocumentJobResult, MobileDocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
 import type { Document, DocumentAnalysis, ExtractedMetadata, DocumentDerivation } from '../types/supabase';
-import { getDestinationEmailByDocumentType } from '../domain/sunat/areas';
-import { generateDocument, scanMobileDocument } from './documentFlow.service';
+import { getAreaByDocumentType, getDestinationEmailByDocumentType } from '../domain/sunat/areas';
+import { buildDocumentPdf, scanMobileDocument } from './documentFlow.service';
 import { validateDocumentData } from '../domain/templates/validators';
 
 const STORAGE_BUCKET = 'DocumentosIA';
@@ -403,48 +403,137 @@ export async function processAllPendingDocuments(): Promise<any[]> {
 
 /**
  * Procesa una captura de cámara en segundo plano (flujo móvil):
- * mejora de imagen → OCR → clasificación IA → validación → plantilla PDF → storage → BD → n8n.
- * Se ejecuta en el worker para no bloquear la petición HTTP durante los varios minutos
- * que tarda el análisis en hardware sin GPU.
+ * registra el documento de ENTRADA → Storage → OCR → clasificación IA → validación
+ * → PDF (salida) → document_analysis → extracted_metadata → document_derivations
+ * (PENDING para n8n) → notificación.
+ *
+ * La tabla `documents` representa el documento de ENTRADA (la captura). El PDF
+ * generado queda en Storage y se devuelve/notifica, pero NO se registra como fila
+ * de `documents` para no mezclar entrada y salida en la misma tabla.
  */
 export async function processMobileDocument(jobData: DocumentJobData): Promise<MobileDocumentJobResult> {
+  const supabase = getSupabaseClient();
   const buffer = Buffer.from(jobData.fileBase64, 'base64');
 
-  const result = await scanMobileDocument(buffer, jobData.mimeType);
+  // 1. Registrar el documento de entrada (la captura) en `documents`.
+  const { data: documentData, error: docError } = await supabase
+    .from('documents')
+    .insert([{
+      file_name: jobData.fileName,
+      processing_status: 'processing',
+      upload_date: new Date().toISOString(),
+    }])
+    .select();
 
-  const validation = validateDocumentData(result.tipoDocumento, result.datos);
-  if (!validation.valido) {
-    // El flujo de archivo (PDF/Word) no bloquea por validación; el de cámara sí lo
-    // hacía, y por eso fallaba mientras el otro completaba. Aquí solo advertimos y
-    // generamos el PDF con los campos disponibles para revisión humana.
-    console.warn(`[MobileJob] Validación con observaciones: ${validation.errores.join('. ') || 'sin detalle'}`);
-    console.warn(`[MobileJob] Campos extraídos: ${JSON.stringify(result.datos)}`);
+  if (docError) {
+    throw new Error(`No se pudo registrar el documento de entrada: ${docError.message}`);
   }
+  const documentId: string = documentData[0].id;
 
-  const generated = await generateDocument(result.tipoDocumento, result.datos);
+  try {
+    // 2. Subir la captura original a Storage y enlazarla al documento.
+    const storageUrl = await uploadToStorage(
+      supabase,
+      documentId,
+      jobData.fileName,
+      jobData.fileBase64,
+      jobData.mimeType,
+    );
+    if (storageUrl) {
+      await supabase.from('documents').update({ storage_url: storageUrl }).eq('id', documentId);
+    }
 
-  await notifyN8n({
-    event: 'DOCUMENTO_ANALIZADO',
-    documentId: generated.documentoId,
-    fileName: `${result.tipoDocumento}.pdf`,
-    storageUrl: generated.url,
-    tipoDocumento: result.tipoDocumento,
-    confianza: result.confianza,
-    campos: result.datos,
-    resumenEjecutivo: result.resumenEjecutivo,
-    remitente: 'ea.luisperez@gmail.com',
-    fecha: new Date().toISOString(),
-    warnings: validation.errores,
-  });
+    // 3. OCR + clasificación.
+    const result = await scanMobileDocument(buffer, jobData.mimeType);
 
-  return {
-    tipoDocumento: result.tipoDocumento,
-    confianza: result.confianza,
-    campos: result.datos,
-    resumenEjecutivo: result.resumenEjecutivo,
-    templateSugerido: result.tipoDocumento,
-    pdfUrl: generated.url,
-    documentId: generated.documentoId,
-    warnings: validation.errores,
-  };
+    // 4. Validación NO bloqueante: el PDF se genera igual, para revisión humana.
+    const validation = validateDocumentData(result.tipoDocumento, result.datos);
+    if (!validation.valido) {
+      console.warn(`[MobileJob] Validación con observaciones: ${validation.errores.join('. ') || 'sin detalle'}`);
+      console.warn(`[MobileJob] Campos extraídos: ${JSON.stringify(result.datos)}`);
+    }
+
+    // 5. Generar y subir el PDF (salida), sin registrar una fila en `documents`.
+    const generated = await buildDocumentPdf(result.tipoDocumento, result.datos);
+
+    // 6. Marcar el documento de entrada como completado.
+    await supabase.from('documents').update({ processing_status: 'completed' }).eq('id', documentId);
+
+    // 7. Registrar el análisis.
+    await supabase.from('document_analysis').insert([{
+      document_id: documentId,
+      document_category: result.tipoDocumento,
+      confidence_percentage: result.confianza,
+      ai_summary: result.resumenEjecutivo,
+      processed_at: new Date().toISOString(),
+    }]);
+
+    // 8. Registrar los metadatos extraídos.
+    await Promise.all(
+      Object.entries(result.datos ?? {}).map(([field, value]) => supabase
+        .from('extracted_metadata')
+        .insert([{
+          document_id: documentId,
+          field_name: field,
+          field_value: serializeFieldValue(value),
+          confidence: 100,
+        }])),
+    );
+
+    // 9. Derivación en estado PENDING para que n8n sepa que debe notificarla.
+    const area = getAreaByDocumentType(result.tipoDocumento);
+    const { data: derivationData } = await supabase
+      .from('document_derivations')
+      .insert([{
+        document_id: documentId,
+        target_area: area,
+        derivation_reason: `Derivación automática basada en clasificación: ${result.tipoDocumento}`,
+        status: 'PENDING',
+        created_at: new Date().toISOString(),
+      }])
+      .select();
+    const derivationId = derivationData?.[0]?.id;
+
+    // 10. Notificar a n8n (webhook) incluyendo la URL del PDF generado.
+    await notifyN8n({
+      event: 'DOCUMENTO_ANALIZADO',
+      documentId,
+      derivationId,
+      fileName: jobData.fileName,
+      storageUrl,
+      pdfUrl: generated.url,
+      tipoDocumento: result.tipoDocumento,
+      area,
+      confianza: result.confianza,
+      campos: result.datos,
+      resumenEjecutivo: result.resumenEjecutivo,
+      remitente: 'ea.luisperez@gmail.com',
+      fecha: new Date().toISOString(),
+      warnings: validation.errores,
+    });
+
+    return {
+      tipoDocumento: result.tipoDocumento,
+      confianza: result.confianza,
+      campos: result.datos,
+      resumenEjecutivo: result.resumenEjecutivo,
+      templateSugerido: result.tipoDocumento,
+      pdfUrl: generated.url,
+      documentId,
+      warnings: validation.errores,
+    };
+  } catch (error) {
+    try {
+      await supabase.from('documents').update({ processing_status: 'failed' }).eq('id', documentId);
+    } catch (e) {
+      console.error('[MobileJob] Error marcando el documento como failed:', e);
+    }
+    throw error;
+  }
+}
+
+/** Serializa un valor de campo a texto para `extracted_metadata.field_value`. */
+function serializeFieldValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
