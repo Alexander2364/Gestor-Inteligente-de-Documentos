@@ -1,7 +1,8 @@
 import { Request, Response, Router } from 'express';
 import { mobileUpload, MOBILE_IMAGE_MIMES } from '../middleware/mobileUpload';
 import { validateDocumentData } from '../domain/templates/validators';
-import { DocumentFlowError, generateDocument, scanMobileDocument } from '../services/documentFlow.service';
+import { DocumentFlowError, buildDocumentPdf } from '../services/documentFlow.service';
+import { processMobileDocument } from '../services/document-processing';
 
 const router = Router();
 
@@ -37,7 +38,8 @@ router.post('/generate-document', async (req: Request, res: Response) => {
   }
 
   try {
-    return res.status(201).json(await generateDocument(tipoDocumento, datos));
+    const built = await buildDocumentPdf(tipoDocumento, datos);
+    return res.status(201).json(built);
   } catch (error) {
     return sendFlowError(res, error);
   }
@@ -53,20 +55,16 @@ router.post('/scan-and-generate', mobileUpload.single('file'), async (req: Reque
   }
 
   try {
-    const scan = await scanMobileDocument(req.file.buffer, req.file.mimetype);
-    const validation = validateDocumentData(scan.tipoDocumento, scan.datos);
-    if (!validation.valido) {
-      return res.status(400).json({ error: 'Datos inválidos', errores: validation.errores, etapa: 'validation' });
-    }
-    const generated = await generateDocument(scan.tipoDocumento, scan.datos);
-
-    return res.status(201).json({
-      tipoDocumento: scan.tipoDocumento,
-      confianza: scan.confianza,
-      datos: scan.datos,
-      pdfUrl: generated.url,
-      documentoId: generated.documentoId,
+    // Reutiliza el flujo de cámara: registra el documento de ENTRADA, crea el
+    // análisis, los metadatos y la derivación PENDING, y genera el PDF (salida).
+    const result = await processMobileDocument({
+      fileName: req.file.originalname || `captura-${Date.now()}.jpg`,
+      mimeType: req.file.mimetype,
+      fileBase64: req.file.buffer.toString('base64'),
+      source: 'mobile',
     });
+
+    return res.status(201).json(result);
   } catch (error) {
     return sendFlowError(res, error);
   }
