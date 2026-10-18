@@ -69,6 +69,9 @@ jobs:
       - name: Ejecutar Lint
         run: npm run lint
 
+      - name: Verificar formato
+        run: npm run format:check
+
   test:
     runs-on: ubuntu-latest
     needs: lint
@@ -108,3 +111,20 @@ jobs:
 
       - name: Compilar proyecto
         run: npm run build
+
+  secrets:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+        with:
+          # Historial completo: Gitleaks escanea también los commits nuevos.
+          fetch-depth: 0
+
+      # Escaneo de secretos. Es gratuito en repositorios de usuario;
+      # en repositorios de organización requiere GITLEAKS_LICENSE.
+      - name: Escaneo de secretos (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

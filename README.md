@@ -52,3 +52,36 @@ Ejemplos:
 `chore: actualizar dependencias`
 
 **Si no usan este estándar, les rechazo el PR.**
+
+## Calidad, lint y hooks
+
+| Comando | Qué hace |
+|---|---|
+| `npm run lint` | ESLint (flat config en `eslint.config.mjs`) |
+| `npm run lint:fix` | ESLint con `--fix` |
+| `npm run format` / `npm run format:check` | Prettier sobre `src/` y `tests/` |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | Vitest |
+
+Los hooks de Git (Husky) se instalan solos al ejecutar `npm install` (script
+`prepare`). En cada commit, `lint-staged` ejecuta `eslint --fix` y
+`prettier --write` **solo** sobre los archivos preparados.
+
+### Escaneo de secretos (Gitleaks)
+
+- En CI se ejecuta siempre (`gitleaks/gitleaks-action`) sobre los commits del PR.
+- En local es opcional: si tienes el binario `gitleaks` instalado, el hook
+  `pre-commit` lo ejecuta automáticamente; si no, se omite y el CI lo cubre igual.
+- Instalación (verifica con `gitleaks version`): binario oficial en
+  <https://github.com/gitleaks/gitleaks/releases>; macOS `brew install gitleaks`;
+  Windows `scoop install gitleaks`.
+- Configuración: `.gitleaks.toml` (allowlist para `.env.example`, locks, etc.).
+
+### Qué corre dónde
+
+| Comprobación | Local (pre-commit) | CI |
+|---|---|---|
+| ESLint + Prettier | sí (archivos staged) | sí |
+| Gitleaks | sí, si está instalado | sí |
+| `tsc --noEmit` | — | sí |
+| Vitest | — | sí |
