@@ -30,6 +30,7 @@ export interface DocumentDerivation {
   document_id: string;
   target_area: string;
   derivation_reason: string;
-  status: 'pending' | 'in-progress' | 'completed' | 'failed';
+  // Valores reales en la BD: el backend inserta 'PENDING' y n8n lo pasa a 'NOTIFICADO'.
+  status: 'PENDING' | 'NOTIFICADO' | 'pending' | 'in-progress' | 'completed' | 'failed';
   created_at: string;
 }

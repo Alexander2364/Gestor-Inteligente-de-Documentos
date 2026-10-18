@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - develop
+      - main
 
   pull_request:
     branches:
@@ -12,35 +13,60 @@ on:
 
   workflow_dispatch:
 
+# Si se empuja de nuevo sobre la misma rama, cancela la ejecución anterior
+# en lugar de dejar dos pipelines compitiendo.
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+# Permisos mínimos: solo lectura del repositorio.
+permissions:
+  contents: read
+
+env:
+  # Los tests mockean puppeteer (vi.mock('puppeteer')), así que no hace falta
+  # descargar Chromium (~150 MB) en cada instalación.
+  PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+# IMPORTANTE: los nombres de estos jobs (install, typecheck, lint, test y
+# build) están fijados como *required status checks* en los rulesets
+# "Proteccion-main" y "proteccion-develop". No renombrar: si desaparecen,
+# los Pull Request quedan bloqueados esperando checks que no se reportan.
 jobs:
   install:
+    name: install
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Descargar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Instalar dependencias
         run: npm ci
 
+  # typecheck, lint, test y build corren en paralelo (todos esperan a install),
+  # en lugar de encadenarse uno tras otro como antes.
   typecheck:
+    name: typecheck
     runs-on: ubuntu-latest
     needs: install
+    timeout-minutes: 15
 
     steps:
       - name: Descargar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Instalar dependencias
@@ -50,17 +76,19 @@ jobs:
         run: npm run typecheck
 
   lint:
+    name: lint
     runs-on: ubuntu-latest
-    needs: typecheck
+    needs: install
+    timeout-minutes: 15
 
     steps:
       - name: Descargar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Instalar dependencias
@@ -69,18 +97,23 @@ jobs:
       - name: Ejecutar Lint
         run: npm run lint
 
+      - name: Verificar formato
+        run: npm run format:check
+
   test:
+    name: test
     runs-on: ubuntu-latest
-    needs: lint
+    needs: install
+    timeout-minutes: 15
 
     steps:
       - name: Descargar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Instalar dependencias
@@ -90,17 +123,19 @@ jobs:
         run: npm run test
 
   build:
+    name: build
     runs-on: ubuntu-latest
-    needs: test
+    needs: install
+    timeout-minutes: 15
 
     steps:
       - name: Descargar código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Instalar dependencias
@@ -108,3 +143,22 @@ jobs:
 
       - name: Compilar proyecto
         run: npm run build
+
+  secrets:
+    name: Escaneo de secretos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v7
+        with:
+          # Historial completo: Gitleaks escanea también los commits nuevos.
+          fetch-depth: 0
+
+      # Escaneo de secretos. Es gratuito en repositorios de usuario;
+      # en repositorios de organización requiere GITLEAKS_LICENSE.
+      - name: Escaneo de secretos (Gitleaks)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

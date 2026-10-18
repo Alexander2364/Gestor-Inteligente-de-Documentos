@@ -78,10 +78,11 @@ function fillArrayRows($: HtmlQuery, datos: Record<string, any>): void {
     rows.forEach((row) => target.append(row));
   });
 
-  const indexedRows = $('tr').filter((_index: number, row: any) => (
-    $(row).find('[name^="bienes["]').length > 0
-    && !$(row).closest('[data-template="bienes"]').length
-  ));
+  const indexedRows = $('tr').filter(
+    (_index: number, row: any) =>
+      $(row).find('[name^="bienes["]').length > 0 &&
+      !$(row).closest('[data-template="bienes"]').length,
+  );
   if (!indexedRows.length) return;
 
   const firstRow = indexedRows.first();

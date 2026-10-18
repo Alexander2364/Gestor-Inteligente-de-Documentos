@@ -2,17 +2,20 @@ import { getDocumentTemplate } from '../domain/templates';
 import { getTemplatePath } from '../domain/templates/index';
 import { fillTemplate } from '../domain/templates/templateFiller';
 import { extractTextFromPreprocessedImage, preprocessMobileImage } from './extractor';
-import { classifyWithOllama } from './ia';
+import { classifyDocument } from './ia';
 import { htmlToPdf } from './documentGenerator.service';
 import { uploadFile } from './storage.service';
-import { saveDocumentoGenerado } from './database.service';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
-export type DocumentFlowStage = 'preprocessing' | 'ocr' | 'classification' | 'template' | 'pdf' | 'storage' | 'database';
+export type DocumentFlowStage =
+  'preprocessing' | 'ocr' | 'classification' | 'template' | 'pdf' | 'storage' | 'database';
 
 export class DocumentFlowError extends Error {
-  constructor(public readonly stage: DocumentFlowStage, message: string) {
+  constructor(
+    public readonly stage: DocumentFlowStage,
+    message: string,
+  ) {
     super(message);
     this.name = 'DocumentFlowError';
   }
@@ -25,41 +28,46 @@ export interface ScannedDocument {
   resumenEjecutivo: string;
 }
 
-export interface GeneratedDocument {
-  url: string;
-  documentoId: string;
-  tipoDocumento: string;
-}
-
 /**
- * Tope de tokens para el flujo de cámara. En hardware sin GPU (~2 tok/s) acota el
- * peor caso a ~6 min, por debajo del timeout de Ollama, y evita que el modelo
- * divague hasta agotar los 10 minutos.
+ * Tope de tokens para el flujo de cámara: acota la salida del modelo (Ollama
+ * `num_predict` / Gemini `maxOutputTokens`) para que no divague hasta agotar el
+ * timeout en hardware sin GPU.
  */
-const MOBILE_MAX_PREDICT = Number(process.env.OLLAMA_MOBILE_MAX_PREDICT ?? 768);
+const MOBILE_MAX_PREDICT = Number(
+  process.env.IA_MOBILE_MAX_TOKENS ?? process.env.OLLAMA_MOBILE_MAX_PREDICT ?? 768,
+);
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Error desconocido';
 }
 
-export async function scanMobileDocument(buffer: Buffer, mimeType: string): Promise<ScannedDocument> {
+export async function scanMobileDocument(
+  buffer: Buffer,
+  mimeType: string,
+): Promise<ScannedDocument> {
   let processedBuffer: Buffer;
   try {
     processedBuffer = await preprocessMobileImage(buffer);
   } catch (error) {
-    throw new DocumentFlowError('preprocessing', `No se pudo mejorar la imagen: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'preprocessing',
+      `No se pudo mejorar la imagen: ${getErrorMessage(error)}`,
+    );
   }
 
   let text: string;
   try {
     text = await extractTextFromPreprocessedImage(processedBuffer);
   } catch (error) {
-    throw new DocumentFlowError('ocr', `No se pudo transcribir la imagen: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'ocr',
+      `No se pudo transcribir la imagen: ${getErrorMessage(error)}`,
+    );
   }
 
   try {
-    // Esquema compacto + tope de tokens para que el modelo termine a tiempo en CPU.
-    const result = await classifyWithOllama(text, { compact: true, maxPredict: MOBILE_MAX_PREDICT });
+    // Esquema compacto + tope de tokens para acotar la generación del proveedor.
+    const result = await classifyDocument(text, { compact: true, maxPredict: MOBILE_MAX_PREDICT });
     return {
       tipoDocumento: result.tipoDocumento,
       confianza: result.confianza,
@@ -67,14 +75,29 @@ export async function scanMobileDocument(buffer: Buffer, mimeType: string): Prom
       resumenEjecutivo: result.resumenEjecutivo,
     };
   } catch (error) {
-    throw new DocumentFlowError('classification', `No se pudo clasificar el documento: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'classification',
+      `No se pudo clasificar el documento: ${getErrorMessage(error)}`,
+    );
   }
 }
 
-export async function generateDocument(
+export interface BuiltDocument {
+  url: string;
+  tipoDocumento: string;
+  area: string;
+}
+
+/**
+ * Rellena la plantilla, genera el PDF y lo sube a Storage, SIN tocar la base de
+ * datos. La tabla `documents` representa el documento de ENTRADA, por lo que el
+ * PDF generado (salida) nunca se registra como fila: queda en Storage y se
+ * devuelve al cliente / se envía a n8n.
+ */
+export async function buildDocumentPdf(
   tipoDocumento: string,
   datos: Record<string, unknown>,
-): Promise<GeneratedDocument> {
+): Promise<BuiltDocument> {
   const templatePath = getTemplatePath(tipoDocumento);
   const template = getDocumentTemplate(tipoDocumento);
   if (!templatePath || !template) {
@@ -86,7 +109,10 @@ export async function generateDocument(
     const html = await readFile(templatePath, 'utf8');
     filledHtml = fillTemplate(html, datos);
   } catch (error) {
-    throw new DocumentFlowError('template', `No se pudo preparar la plantilla: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'template',
+      `No se pudo preparar la plantilla: ${getErrorMessage(error)}`,
+    );
   }
 
   let pdf: Buffer;
@@ -97,17 +123,13 @@ export async function generateDocument(
   }
 
   const key = `generated/${tipoDocumento}/${randomUUID()}.pdf`;
-  let url: string;
   try {
-    url = await uploadFile(pdf, key, 'application/pdf');
+    const url = await uploadFile(pdf, key, 'application/pdf');
+    return { url, tipoDocumento, area: template.area };
   } catch (error) {
-    throw new DocumentFlowError('storage', `No se pudo guardar el PDF en el bucket: ${getErrorMessage(error)}`);
-  }
-
-  try {
-    const document = await saveDocumentoGenerado(tipoDocumento, template.area, datos, url);
-    return { url, documentoId: document.id, tipoDocumento };
-  } catch (error) {
-    throw new DocumentFlowError('database', `No se pudo registrar el documento: ${getErrorMessage(error)}`);
+    throw new DocumentFlowError(
+      'storage',
+      `No se pudo guardar el PDF en el bucket: ${getErrorMessage(error)}`,
+    );
   }
 }

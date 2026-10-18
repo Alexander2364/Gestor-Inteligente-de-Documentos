@@ -70,11 +70,12 @@ Texto (máx 2500 chars):
 /**
  * Variante compacta del prompt para el flujo de escaneo con cámara (hardware sin GPU).
  * Pide solo tipoDocumento, confianza, campos y resumenEjecutivo: se omite la clave
- * `informeEjecutivo`, que el backend reconstruye localmente en `normalizeOllamaResult`
+ * `informeEjecutivo`, que el backend reconstruye localmente en `normalizeClassificationResult`
  * a partir de `createExecutiveReport`. Así el modelo genera muchos menos tokens y
  * termina dentro del timeout en vez de divagar hasta los 10 minutos.
  */
-const COMPACT_SCHEMA = '{"tipoDocumento":"DECLARACION_JURADA_MENSUAL","confianza":0.95,"campos":{"ruc":"","periodo":"","ingresos":"","rentaNeta":"","saldoAPagar":"","totalDeuda":"","fechaVencimiento":"","numeroCuotas":"","numeroActa":"","tipoAccion":"","fecha":"","hora":"","numeroAccionControl":"","lugarAccionControl":"","nombreAccionControl":"","formaIdentificacion":"","tipoPersona":"","apellidosNombres":"","tipoDocumentoIdentidad":"","numeroDocumentoIdentidad":"","domicilio":"","razonSocial":"","empresaTransportista":"","tipoVehiculo":"","matricula":"","manifiesto":"","procedencia":"","destino":"","documentoTransporte":"","regimenOperacionAduanera":"","numeroDeclaracion":"","fechaDeclaracion":"","fundamentoHecho":"","fundamentoDerecho":"","bienes":[],"peso":"","lugarCustodia":"","observaciones":""},"resumenEjecutivo":"Resumen factual breve en español."}';
+const COMPACT_SCHEMA =
+  '{"tipoDocumento":"DECLARACION_JURADA_MENSUAL","confianza":0.95,"campos":{"ruc":"","periodo":"","ingresos":"","rentaNeta":"","saldoAPagar":"","totalDeuda":"","fechaVencimiento":"","numeroCuotas":"","numeroActa":"","tipoAccion":"","fecha":"","hora":"","numeroAccionControl":"","lugarAccionControl":"","nombreAccionControl":"","formaIdentificacion":"","tipoPersona":"","apellidosNombres":"","tipoDocumentoIdentidad":"","numeroDocumentoIdentidad":"","domicilio":"","razonSocial":"","empresaTransportista":"","tipoVehiculo":"","matricula":"","manifiesto":"","procedencia":"","destino":"","documentoTransporte":"","regimenOperacionAduanera":"","numeroDeclaracion":"","fechaDeclaracion":"","fundamentoHecho":"","fundamentoDerecho":"","bienes":[],"peso":"","lugarCustodia":"","observaciones":""},"resumenEjecutivo":"Resumen factual breve en español."}';
 
 const COMPACT_CLASSIFIER_PROMPT = CLASSIFIER_PROMPT.replace(
   /\{"tipoDocumento"[\s\S]*?"accionesRequeridas":\[\]\}\}/,

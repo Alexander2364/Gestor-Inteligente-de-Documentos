@@ -57,7 +57,8 @@ curl -X POST http://localhost:3000/upload/mobile \
 | `resumenEjecutivo` | `string` | Resumen generado a partir de la clasificacion. |
 | `templateSugerido` | `string` | Tipo de plantilla sugerida para el frontend. |
 | `pdfUrl` | `string` | URL publica del PDF guardado en Supabase Storage. |
-| `documentId` | `string` | UUID del registro creado en `documents`. |
+| `documentId` | `string` | UUID del documento de **entrada** creado en `documents`. |
+| `warnings` | `string[]` | Advertencias de validacion (el PDF se genera igual, para revision humana). |
 
 ### Errores
 

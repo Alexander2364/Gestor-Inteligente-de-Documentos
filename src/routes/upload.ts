@@ -10,7 +10,7 @@ const router = Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 
 router.post('/', upload.single('file'), async (req: Request, res: Response) => {
@@ -21,8 +21,13 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     }
 
     console.log('[Upload] 2. Validando mimetype...');
-    const extensionSupported = /\.(docx|docm|dotx|xlsx|xlsm|png|jpg|jpeg|tiff|bmp|pdf)$/i.test(req.file.originalname);
-    if (!isSupportedMimeType(req.file.mimetype) && !(req.file.mimetype === 'application/octet-stream' && extensionSupported)) {
+    const extensionSupported = /\.(docx|docm|dotx|xlsx|xlsm|png|jpg|jpeg|tiff|bmp|pdf)$/i.test(
+      req.file.originalname,
+    );
+    if (
+      !isSupportedMimeType(req.file.mimetype) &&
+      !(req.file.mimetype === 'application/octet-stream' && extensionSupported)
+    ) {
       return res.status(400).json({ error: `Tipo no soportado: ${req.file.mimetype}` });
     }
 
@@ -30,7 +35,9 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     try {
       const utf8Name = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
       if (!utf8Name.includes('Ã')) fileName = utf8Name;
-    } catch {}
+    } catch {
+      // La decodificación es best-effort: si falla, se usa el nombre original.
+    }
 
     fileName = fileName
       .replace(/Ã[\u0080-\u009f]?N/g, 'ÓN')
@@ -52,11 +59,11 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
 
     if (process.env.QUEUE_ENABLED === 'true') {
       console.log('[Upload] 3. QUEUE_ENABLED=true. Llamando a enqueueDocument...');
-      
+
       const job = await enqueueDocument(jobData);
-      
+
       console.log('[Upload] 4. ✅ enqueueDocument completado. Job ID:', job.id);
-      
+
       return res.status(202).json({
         jobId: job.id,
         fileName,
@@ -67,7 +74,6 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
     console.log('[Upload] 5. Procesando sincrónicamente (fallback)...');
     const response = await processDocument(jobData);
     return res.json(response);
-
   } catch (err) {
     console.error('[Upload] ❌ ERROR FATAL:', err);
     const message = err instanceof Error ? err.message : 'Error interno';
@@ -121,27 +127,27 @@ router.get('/status/:jobId', async (req: Request, res: Response) => {
     const { jobId } = req.params;
     const queue = getDocumentQueue();
     const job = await queue.getJob(jobId);
-    
+
     if (!job) {
       return res.status(404).json({ error: 'Job no encontrado' });
     }
-    
+
     const state = await job.getState();
-    
+
     if (state === 'completed') {
-      return res.json({ 
-        status: 'completed', 
-        result: job.returnvalue 
+      return res.json({
+        status: 'completed',
+        result: job.returnvalue,
       });
     }
-    
+
     if (state === 'failed') {
-      return res.json({ 
-        status: 'failed', 
-        error: job.failedReason 
+      return res.json({
+        status: 'failed',
+        error: job.failedReason,
       });
     }
-    
+
     return res.json({ status: state });
   } catch (err) {
     console.error('[Status] Error:', err);

@@ -1,292 +1,158 @@
-# Flujo de generación de documentos
+# Flujo de documentos (OCR + IA + generación de PDF)
 
-Este documento describe el flujo móvil completo para convertir una fotografía de un acta SUNAT en un PDF rellenado y almacenarlo en el bucket público `DocumentosIA` de Supabase Storage.
+Este documento describe cómo el backend procesa documentos: transcribe y clasifica con OCR/IA,
+persiste el resultado en Supabase y genera el PDF rellenado en el bucket `DocumentosIA`.
 
-## Flujo completo
+## Modelo de datos (Supabase)
 
-```mermaid
-flowchart LR
-    A[Foto móvil] --> B[POST /upload/mobile]
-    B --> C[Preprocesamiento de imagen]
-    C --> D[OCR / transcripción]
-    D --> E[Clasificación del documento]
-    E --> F[Extracción de campos]
-    F --> G[GET /template/:tipoDocumento]
-    G --> H[Cliente completa o corrige datos]
-    H --> I[POST /generate-document]
-    I --> J[Lectura de HTML]
-    J --> K[fillTemplate]
-    K --> L[htmlToPdf / Puppeteer]
-    L --> M[uploadFile / Supabase Storage]
-    M --> N[documentos_generados / PostgreSQL]
-    N --> O[URL o key del PDF + documentoId]
-```
+La base de datos tiene **4 tablas**. La tabla `documents` representa siempre el **documento de
+ENTRADA** (el archivo o la captura subida); el PDF generado es una **salida** que vive en Storage
+y **no** se registra como fila.
 
-El flujo tiene dos etapas HTTP:
+| Tabla | Rol | Columnas |
+| --- | --- | --- |
+| `documents` | Documento de entrada | `id`, `user_id`, `file_name`, `storage_url`, `upload_date`, `processing_status` |
+| `document_analysis` | Resultado de la IA | `id`, `document_id`, `document_category`, `confidence_percentage`, `ai_summary`, `processed_at` |
+| `extracted_metadata` | Campos extraídos (1 fila por campo) | `id`, `document_id`, `field_name`, `field_value`, `confidence` |
+| `document_derivations` | Derivación a un área | `id`, `document_id`, `target_area`, `derivation_reason`, `status`, `created_at` |
 
-1. `POST /upload/mobile` procesa la fotografía y devuelve una clasificación y los campos extraídos.
-2. `GET /template/:tipoDocumento` permite consultar la definición de la plantilla.
-3. `POST /generate-document` recibe los datos finales, genera el PDF, lo sube al bucket y registra el documento.
+- `document_id` de las tres tablas hijas referencia `documents.id`.
+- `documents.processing_status`: `pending` / `processing` / `completed` / `failed`.
+- `document_derivations.status`: el backend inserta `PENDING`; n8n lo actualiza a `NOTIFICADO`.
 
-La respuesta de `upload/mobile` no genera un PDF por sí sola. El cliente puede revisar o completar `campos` antes de llamar a `generate-document`.
+## Flujos
 
-## 1. Transcribir y clasificar una fotografía
+### 1. Subida de archivo (`POST /upload`)
 
-### Request
+`multipart/form-data` en el campo `file` (docx, xlsx, pdf, imágenes). Con `QUEUE_ENABLED=true`
+se encola (BullMQ) y responde `202` con `jobId`; en caso contrario procesa sincrónicamente.
 
-El archivo debe enviarse como `multipart/form-data` en el campo `file`.
+`processDocument`:
 
-```bash
-curl -X POST http://localhost:3000/upload/mobile \
-  -F "file=@./acta-inmovilizacion.jpg"
-```
+1. Sube el archivo de entrada a Storage y crea la fila en `documents` (`processing`).
+2. OCR/transcripción → clasificación IA → extracción de campos.
+3. Marca `documents` como `completed`.
+4. Inserta `document_analysis`, `extracted_metadata` y `document_derivations` (`PENDING`).
+5. Notifica a n8n.
 
-Formatos de imagen aceptados por esta ruta:
+### 2. Captura de cámara (`POST /upload/mobile`)
 
-- `image/jpeg`
-- `image/jpg`
-- `image/png`
-- `image/heic`
-- `image/heif`
+`multipart/form-data` en el campo `file`; MIME permitidos: `image/jpeg`, `image/jpg`, `image/png`,
+`image/heic`, `image/heif`. Con `QUEUE_ENABLED=true` responde `202 { jobId, status: "pending" }`
+y el cliente consulta `GET /upload/status/:jobId`.
 
-### Response `200 OK`
+`processMobileDocument` (worker):
 
-```json
-{
-  "tipoDocumento": "ACTA_INMOVILIZACION",
-  "confianza": 96,
-  "campos": {
-    "numeroActa": "AI-2026-000123",
-    "fecha": "2026-10-14",
-    "bienes": [
-      {
-        "numero": "1",
-        "cantidad": "2",
-        "unidadMedida": "UNIDAD",
-        "descripcion": "Repuestos automotrices",
-        "observaciones": ""
-      }
-    ]
-  },
-  "resumenEjecutivo": "Acta de inmovilización de mercancía",
-  "templateSugerido": "ACTA_INMOVILIZACION"
-}
-```
+1. Crea la fila del documento de **entrada** en `documents` (`processing`) y sube la **captura
+   original** a Storage, enlazándola en `storage_url`.
+2. Mejora de imagen → OCR → clasificación IA (`scanMobileDocument`).
+3. Validación **no bloqueante**: si faltan campos, se registra una advertencia y el PDF se genera
+   igual para revisión humana (los avisos se devuelven en `warnings`).
+4. Genera el **PDF rellenado** y lo sube a Storage (`buildDocumentPdf`). No se registra en `documents`.
+5. Marca el documento de entrada como `completed`.
+6. Inserta `document_analysis`, `extracted_metadata` y `document_derivations` (`PENDING`).
+7. Notifica a n8n incluyendo `documentId`, `pdfUrl`, `area` y `campos`.
 
-### Errores
+### 3. Documentos entrantes vía n8n / correo
 
-```json
-// 400 Bad Request
-{ "error": "No se envio ninguna imagen" }
-```
+n8n (o cualquier integración) inserta la fila en `documents` con `processing_status = "pending"`.
+Luego:
 
-```json
-// 415 Unsupported Media Type
-{ "error": "Tipo de imagen no soportado: text/plain" }
-```
+- `POST /documents/process-pending` con `{ documentId }` procesa uno (`processDocumentById`).
+- `POST /documents/process-pending` sin `documentId` procesa todos los `pending`
+  (`processAllPendingDocuments`).
 
-```json
-// 500 Internal Server Error
-{ "error": "Error interno procesando imagen" }
-```
+Ambos dejan el mismo rastro: `document_analysis` + `extracted_metadata` + `document_derivations` (`PENDING`).
 
-Un error 500 suele indicar que OCR u Ollama no están disponibles o que la imagen no pudo procesarse.
+## Endpoints
 
-## 2. Consultar la plantilla
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `POST` | `/upload` | Sube un archivo (docx/xlsx/pdf/imagen) |
+| `POST` | `/upload/mobile` | Sube una captura de cámara |
+| `GET` | `/upload/status/:jobId` | Estado de un job de la cola |
+| `GET` | `/documents` | Lista documentos con su análisis, metadatos y derivaciones |
+| `GET` | `/documents/search?q=` | Busca documentos por `file_name` |
+| `GET` | `/documents/:id` | Detalle de un documento |
+| `POST` | `/documents/process-pending` | Procesa documentos `pending` |
+| `GET` | `/template/:tipoDocumento` | Devuelve la definición de una plantilla |
+| `POST` | `/generate-document` | Genera el PDF a partir de `{ tipoDocumento, datos }` (sin persistir) |
+| `POST` | `/scan-and-generate` | Atajo síncrono: ejecuta el flujo de cámara sobre una imagen |
+| `POST` | `/chat` | Consulta en lenguaje natural sobre los documentos |
 
-### Request
+### `POST /generate-document`
 
-```bash
-curl http://localhost:3000/template/ACTA_INMOVILIZACION
-```
-
-### Response `200 OK`
-
-```json
-{
-  "tipoDocumento": "ACTA_INMOVILIZACION",
-  "area": "Prevención del Contrabando",
-  "campos": [
-    {
-      "nombre": "numeroActa",
-      "label": "N° Acta",
-      "tipo": "text",
-      "requerido": true
-    },
-    {
-      "nombre": "fecha",
-      "label": "Fecha",
-      "tipo": "text",
-      "requerido": true
-    },
-    {
-      "nombre": "bienes",
-      "label": "Bienes",
-      "tipo": "array",
-      "subcampos": [
-        { "nombre": "numero", "label": "N°", "tipo": "text" },
-        { "nombre": "descripcion", "label": "Descripción", "tipo": "text" }
-      ]
-    }
-  ]
-}
-```
-
-La ruta acepta tipos con letras, números y guion bajo. Actualmente existen plantillas para `ACTA_INMOVILIZACION` y `ACTA_INCAUTACION`.
-
-### Errores
-
-```json
-// 400 Bad Request: parámetro con caracteres no permitidos
-{ "error": "Tipo de documento inválido" }
-```
-
-```json
-// 404 Not Found: tipo válido pero sin definición
-{ "error": "Plantilla no encontrada" }
-```
-
-## 3. Generar, subir y registrar el PDF
-
-### Request
-
-```bash
-curl -X POST http://localhost:3000/generate-document \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tipoDocumento": "ACTA_INMOVILIZACION",
-    "datos": {
-      "numeroActa": "AI-2026-000123",
-      "fecha": "2026-10-14",
-      "hora": "10:30",
-      "tipoAccion": "INMOVILIZACION",
-      "lugarAccionControl": "Callao",
-      "bienes": [
-        {
-          "numero": "1",
-          "cantidad": "2",
-          "unidadMedida": "UNIDAD",
-          "descripcion": "Repuestos automotrices",
-          "observaciones": "Sin documentación"
-        }
-      ],
-      "observaciones": "Acta generada desde captura móvil"
-    }
-  }'
-```
-
-`datos` debe ser un objeto JSON. Sus nombres deben coincidir con los atributos `name` de la plantilla HTML. Los arrays de `bienes` generan una fila por elemento.
-
-### Response `201 Created`
+Genera y sube el PDF a partir de datos ya extraídos. **No** escribe en la base de datos
+(el PDF es una salida). Respuesta `201`:
 
 ```json
 {
   "url": "generated/ACTA_INMOVILIZACION/6b2c5e32-8ec7-4ef8-a2e4-17a7202bde71.pdf",
-  "documentoId": 42,
-  "tipoDocumento": "ACTA_INMOVILIZACION"
+  "tipoDocumento": "ACTA_INMOVILIZACION",
+  "area": "Prevención del Contrabando"
 }
 ```
 
-`url` contiene la URL pública del PDF almacenado en el bucket `DocumentosIA` de Supabase Storage. `documentoId` es el UUID de la fila creada en `documents`.
+### `POST /scan-and-generate`
 
-### Errores
+Atajo síncrono equivalente a `/upload/mobile` (mismo `processMobileDocument`): registra el
+documento de entrada, crea análisis/metadatos/derivación y genera el PDF. Devuelve el resultado
+del flujo de cámara (`tipoDocumento`, `confianza`, `campos`, `resumenEjecutivo`, `pdfUrl`,
+`documentId`, `warnings`).
 
-```json
-// 400 Bad Request
-{ "error": "tipoDocumento es requerido" }
-```
+## Storage
 
-```json
-// 400 Bad Request
-{ "error": "datos debe ser un objeto" }
-```
+Bucket público `DocumentosIA`:
 
-```json
-// 404 Not Found
-{ "error": "Plantilla no encontrada" }
-```
+- Documentos de entrada: `<documentId>.<ext>`.
+- PDFs generados: `generated/<tipoDocumento>/<uuid>.pdf` (salida, no registrada en `documents`).
 
-```json
-// 500 Internal Server Error
-{ "error": "No se pudo generar el documento" }
-```
-
-El 500 puede producirse al leer la plantilla, ejecutar Puppeteer, subir el PDF, insertar en PostgreSQL o si faltan credenciales de alguno de esos servicios.
+El backend usa `SUPABASE_SECRET_KEY` solo en el servidor para subir archivos y genera URLs
+públicas con `getPublicUrl`.
 
 ## Variables de entorno
-
-### Aplicación y procesamiento
 
 ```dotenv
 PORT=3000
 FRONTEND_URL=http://localhost:5173
+# IA: Gemini (Google AI Studio) con respaldo en Ollama
+IA_PROVIDER=auto
+GEMINI_API_KEY=tu_api_key_de_ai_studio
+GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_TIMEOUT_MS=45000
+GEMINI_THINKING_LEVEL=minimal
+OLLAMA_FALLBACK=true
+# Ollama (respaldo local)
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3.1:8b
+OLLAMA_MODEL=llama3.2:3b
+OLLAMA_TIMEOUT_MS=180000
+IA_MOBILE_MAX_TOKENS=768
 QUEUE_ENABLED=false
 REDIS_URL=redis://127.0.0.1:6379
-```
-
-`OLLAMA_HOST` y `OLLAMA_MODEL` son obligatorias para iniciar el backend. `QUEUE_ENABLED` controla el uso de Redis/BullMQ en el flujo general de subida.
-
-### Supabase/PostgreSQL
-
-```dotenv
 SUPABASE_URL=https://tu-proyecto.supabase.co
-SUPABASE_SECRET_KEY=tu_service_role_key
 SUPABASE_PUBLISHABLE_KEY=tu_publishable_key
-```
-
-La tabla `documents` debe existir antes de usar `POST /generate-document`. El servicio registra el PDF en esa tabla con `storage_url`, `file_name` y `processing_status = completed`.
-
-### Supabase Storage
-
-```dotenv
-SUPABASE_URL=https://tu-proyecto.supabase.co
 SUPABASE_SECRET_KEY=tu_service_role_key
 ```
 
-El backend usa `SUPABASE_SECRET_KEY` únicamente en el servidor para subir el archivo y genera la URL pública mediante `getPublicUrl`. No expongas esta clave al frontend ni la confirmes en Git.
+La clasificación usa una **cadena de proveedores**: Gemini → Ollama → clasificador local por
+palabras clave. `IA_PROVIDER` controla el orden (`gemini`, `ollama` o `auto`; en `auto` se usa
+Gemini si hay `GEMINI_API_KEY`, si no Ollama). `OLLAMA_FALLBACK=false` desactiva el respaldo a
+Ollama. Detalles en [`ai-provider.md`](./ai-provider.md).
 
-1. Copia el ejemplo de entorno y completa las credenciales de Supabase:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. En Supabase, abre **Storage**, crea o verifica el bucket público `DocumentosIA` y confirma que el límite de archivo permita PDFs de hasta 50 MB.
-
-   ```bash
-  docker compose up -d --build
-   ```
+`OLLAMA_HOST` y `OLLAMA_MODEL` solo son obligatorias si Ollama es el proveedor principal
+(`IA_PROVIDER=ollama`, o `auto` sin clave de Gemini). `GEMINI_TIMEOUT_MS` acota la llamada a
+Gemini y `IA_MOBILE_MAX_TOKENS` la salida del flujo de cámara.
 
 ## Errores comunes
 
-### `Bucket not found` o error de Storage
-
-Verifica en Supabase que el bucket se llame exactamente `DocumentosIA`, sea público y que `SUPABASE_URL` y `SUPABASE_SECRET_KEY` estén disponibles en el backend.
-
-### `Plantilla no encontrada`
-
-Usa el valor exacto devuelto por `POST /upload/mobile` o consulta primero `GET /template/ACTA_INMOVILIZACION`. El tipo debe usar guiones bajos, por ejemplo `ACTA_INMOVILIZACION`, no espacios ni guiones.
-
-### Puppeteer no puede iniciar Chromium
-
-Instala el navegador de Puppeteer en el entorno donde corre el backend:
-
-```bash
-npx puppeteer browsers install chrome
-```
-
-En contenedores, asegúrate además de incluir las dependencias del sistema requeridas por Chromium. Un bloqueo de scripts de instalación de npm puede impedir la descarga automática del navegador.
-
-### La migración no existe en PostgreSQL
-
-Aplica el SQL de `src/db/migrations/` en Supabase o en el PostgreSQL utilizado por el backend y verifica que exista la tabla `documentos_generados` antes de llamar a `POST /generate-document`.
-
-### Ollama no responde durante `/upload/mobile`
-
-Comprueba `OLLAMA_HOST`, que el modelo indicado por `OLLAMA_MODEL` esté descargado y que el backend pueda alcanzar el host desde Docker. Revisa los logs del servicio:
-
-```bash
-docker compose logs -f backend-api ollama
-```
+- **`Bucket not found`**: el bucket debe llamarse exactamente `DocumentosIA` y ser público.
+- **`Plantilla no encontrada`** (`etapa: "template"`): el `tipoDocumento` no tiene plantilla;
+  usa el valor exacto devuelto por el escaneo (p. ej. `ACTA_INMOVILIZACION`).
+- **Puppeteer no inicia Chromium**: instala el navegador (`npx puppeteer browsers install chrome`)
+  y las dependencias del sistema en el contenedor del backend.
+- **Ollama no responde**: verifica `OLLAMA_HOST`, que el modelo esté descargado y que el backend
+  pueda alcanzarlo desde Docker (`docker compose logs -f backend-api ollama`).
+- **Gemini falla (401/403)**: revisa `GEMINI_API_KEY`; si `IA_PROVIDER=gemini` la clave es
+  obligatoria. Un `429` indica cuota del plan gratuito agotada; sin clave/Gemini se usa Ollama.
+- **Clasificación con el fallback local**: aparece un `[IA] Proveedor ... falló` en los logs;
+  revisa la cuota de Gemini o la disponibilidad de Ollama. Ver [`ai-provider.md`](./ai-provider.md).

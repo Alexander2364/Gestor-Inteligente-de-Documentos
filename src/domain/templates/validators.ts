@@ -6,7 +6,9 @@ export interface ValidationResult {
 type Datos = Record<string, unknown>;
 
 function isBlank(value: unknown): boolean {
-  return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+  return (
+    value === undefined || value === null || (typeof value === 'string' && value.trim() === '')
+  );
 }
 
 function text(value: unknown): string {
@@ -27,9 +29,9 @@ function isValidDate(value: unknown): boolean {
   const day = Number(match[3] ?? match[4]);
   const date = new Date(Date.UTC(year, month - 1, day));
 
-  return date.getUTCFullYear() === year
-    && date.getUTCMonth() === month - 1
-    && date.getUTCDate() === day;
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
 }
 
 function isValidPeriod(value: unknown): boolean {
@@ -41,12 +43,15 @@ function isValidPeriod(value: unknown): boolean {
 
 function isValidNumber(value: unknown): boolean {
   if (typeof value === 'number') return Number.isFinite(value);
-  const valueText = text(value).replace(/^S\/\s*/i, '').replace(/\s/g, '');
+  const valueText = text(value)
+    .replace(/^S\/\s*/i, '')
+    .replace(/\s/g, '');
   if (!valueText) return false;
 
-  const normalized = valueText.includes('.') && valueText.includes(',')
-    ? valueText.replace(/,/g, '')
-    : valueText.replace(',', '.');
+  const normalized =
+    valueText.includes('.') && valueText.includes(',')
+      ? valueText.replace(/,/g, '')
+      : valueText.replace(',', '.');
   return /^-?\d+(?:\.\d+)?$/.test(normalized) && Number.isFinite(Number(normalized));
 }
 
@@ -108,7 +113,11 @@ export function validateDeclaracion(datos: Datos): ValidationResult {
   }
   addRequired(errores, datos, 'ingresos', 'Ingresos');
   addRequired(errores, datos, 'rentaNeta', 'Renta neta');
-  if (isBlank(datos.tributoDeterminado) && isBlank(datos.tributoCalculado) && isBlank(datos.tributo)) {
+  if (
+    isBlank(datos.tributoDeterminado) &&
+    isBlank(datos.tributoCalculado) &&
+    isBlank(datos.tributo)
+  ) {
     errores.push('Tributo determinado es requerido');
   }
   if (isBlank(datos.saldoAPagar) && isBlank(datos.saldoAFavor)) {

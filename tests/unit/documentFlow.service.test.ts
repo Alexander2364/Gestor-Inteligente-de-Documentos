@@ -3,43 +3,40 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   preprocessMobileImageMock,
   extractTextMock,
-  classifyWithOllamaMock,
+  classifyDocumentMock,
   getTemplatePathMock,
   getDocumentTemplateMock,
   readFileMock,
   fillTemplateMock,
   htmlToPdfMock,
   uploadFileMock,
-  saveDocumentoGeneradoMock,
 } = vi.hoisted(() => ({
   preprocessMobileImageMock: vi.fn(),
   extractTextMock: vi.fn(),
-  classifyWithOllamaMock: vi.fn(),
+  classifyDocumentMock: vi.fn(),
   getTemplatePathMock: vi.fn(),
   getDocumentTemplateMock: vi.fn(),
   readFileMock: vi.fn(),
   fillTemplateMock: vi.fn(),
   htmlToPdfMock: vi.fn(),
   uploadFileMock: vi.fn(),
-  saveDocumentoGeneradoMock: vi.fn(),
 }));
 
 vi.mock('../../src/services/extractor', () => ({
   preprocessMobileImage: preprocessMobileImageMock,
   extractTextFromPreprocessedImage: extractTextMock,
 }));
-vi.mock('../../src/services/ia', () => ({ classifyWithOllama: classifyWithOllamaMock }));
+vi.mock('../../src/services/ia', () => ({ classifyDocument: classifyDocumentMock }));
 vi.mock('../../src/domain/templates/index', () => ({ getTemplatePath: getTemplatePathMock }));
 vi.mock('../../src/domain/templates', () => ({ getDocumentTemplate: getDocumentTemplateMock }));
 vi.mock('node:fs/promises', () => ({ readFile: readFileMock }));
 vi.mock('../../src/domain/templates/templateFiller', () => ({ fillTemplate: fillTemplateMock }));
 vi.mock('../../src/services/documentGenerator.service', () => ({ htmlToPdf: htmlToPdfMock }));
 vi.mock('../../src/services/storage.service', () => ({ uploadFile: uploadFileMock }));
-vi.mock('../../src/services/database.service', () => ({ saveDocumentoGenerado: saveDocumentoGeneradoMock }));
 
 import {
   DocumentFlowError,
-  generateDocument,
+  buildDocumentPdf,
   scanMobileDocument,
 } from '../../src/services/documentFlow.service';
 
@@ -48,7 +45,7 @@ describe('documentFlow.service', () => {
     vi.clearAllMocks();
     preprocessMobileImageMock.mockResolvedValue(Buffer.from('processed'));
     extractTextMock.mockResolvedValue('texto del acta');
-    classifyWithOllamaMock.mockResolvedValue({
+    classifyDocumentMock.mockResolvedValue({
       tipoDocumento: 'ACTA_INMOVILIZACION',
       confianza: 0.9,
       campos: { numeroActa: 'ACT-001' },
@@ -60,7 +57,6 @@ describe('documentFlow.service', () => {
     fillTemplateMock.mockReturnValue('<html>rellenada</html>');
     htmlToPdfMock.mockResolvedValue(Buffer.from('pdf'));
     uploadFileMock.mockResolvedValue('generated/ACTA_INMOVILIZACION/documento.pdf');
-    saveDocumentoGeneradoMock.mockResolvedValue({ id: 123 });
   });
 
   it('escanea una imagen y devuelve los datos extraídos', async () => {
@@ -74,19 +70,19 @@ describe('documentFlow.service', () => {
     });
     expect(preprocessMobileImageMock).toHaveBeenCalledWith(Buffer.from('image'));
     expect(extractTextMock).toHaveBeenCalledWith(Buffer.from('processed'));
-    expect(classifyWithOllamaMock).toHaveBeenCalledWith(
+    expect(classifyDocumentMock).toHaveBeenCalledWith(
       'texto del acta',
       expect.objectContaining({ compact: true }),
     );
   });
 
-  it('genera, sube y guarda un documento', async () => {
-    const result = await generateDocument('ACTA_INMOVILIZACION', { numeroActa: 'ACT-001' });
+  it('genera y sube el PDF sin registrar nada en la base de datos', async () => {
+    const result = await buildDocumentPdf('ACTA_INMOVILIZACION', { numeroActa: 'ACT-001' });
 
     expect(result).toEqual({
       url: 'generated/ACTA_INMOVILIZACION/documento.pdf',
-      documentoId: 123,
       tipoDocumento: 'ACTA_INMOVILIZACION',
+      area: 'Prevención del Contrabando',
     });
     expect(htmlToPdfMock).toHaveBeenCalledWith('<html>rellenada</html>');
     expect(uploadFileMock).toHaveBeenCalledWith(
@@ -94,18 +90,12 @@ describe('documentFlow.service', () => {
       expect.stringMatching(/^generated\/ACTA_INMOVILIZACION\/.*\.pdf$/),
       'application/pdf',
     );
-    expect(saveDocumentoGeneradoMock).toHaveBeenCalledWith(
-      'ACTA_INMOVILIZACION',
-      'Prevención del Contrabando',
-      { numeroActa: 'ACT-001' },
-      'generated/ACTA_INMOVILIZACION/documento.pdf',
-    );
   });
 
   it('marca la etapa cuando falla la generación PDF', async () => {
     htmlToPdfMock.mockRejectedValue(new Error('Chromium no disponible'));
 
-    await expect(generateDocument('ACTA_INMOVILIZACION', {})).rejects.toMatchObject({
+    await expect(buildDocumentPdf('ACTA_INMOVILIZACION', {})).rejects.toMatchObject({
       name: 'DocumentFlowError',
       stage: 'pdf',
     } satisfies Partial<DocumentFlowError>);

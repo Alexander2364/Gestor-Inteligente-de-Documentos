@@ -8,20 +8,16 @@ export async function uploadFile(
   contentType: string,
 ): Promise<string> {
   const supabase = getSupabaseClient();
-  const { error } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(key, buffer, {
-      contentType,
-      upsert: true,
-    });
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(key, buffer, {
+    contentType,
+    upsert: true,
+  });
 
   if (error) {
     throw new Error(`No se pudo subir el archivo a Supabase Storage: ${error.message}`);
   }
 
-  const { data } = supabase.storage
-    .from(STORAGE_BUCKET)
-    .getPublicUrl(key);
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(key);
 
   return data.publicUrl;
 }

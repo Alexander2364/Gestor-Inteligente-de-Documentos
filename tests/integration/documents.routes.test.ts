@@ -1,17 +1,13 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  scanMobileDocumentMock,
-  generateDocumentMock,
-} = vi.hoisted(() => ({
-  scanMobileDocumentMock: vi.fn(),
-  generateDocumentMock: vi.fn(),
+const { buildDocumentPdfMock, processMobileDocumentMock } = vi.hoisted(() => ({
+  buildDocumentPdfMock: vi.fn(),
+  processMobileDocumentMock: vi.fn(),
 }));
 
 vi.mock('../../src/services/documentFlow.service', () => ({
-  scanMobileDocument: scanMobileDocumentMock,
-  generateDocument: generateDocumentMock,
+  buildDocumentPdf: buildDocumentPdfMock,
   DocumentFlowError: class DocumentFlowError extends Error {
     stage: string;
 
@@ -22,29 +18,25 @@ vi.mock('../../src/services/documentFlow.service', () => ({
   },
 }));
 
+vi.mock('../../src/services/document-processing', () => ({
+  processMobileDocument: processMobileDocumentMock,
+}));
+
 import { app } from '../../src/app';
 import { DocumentFlowError } from '../../src/services/documentFlow.service';
 
 describe('POST /generate-document', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    scanMobileDocumentMock.mockResolvedValue({
-      tipoDocumento: 'ACTA_INMOVILIZACION',
-      confianza: 0.9,
-      datos: { numeroActa: 'ACT-001', fecha: '2026-10-14' },
-      resumenEjecutivo: 'Acta detectada',
-    });
-    generateDocumentMock.mockResolvedValue({
+    buildDocumentPdfMock.mockResolvedValue({
       url: 'generated/ACTA_INMOVILIZACION/documento.pdf',
-      documentoId: 123,
       tipoDocumento: 'ACTA_INMOVILIZACION',
+      area: 'Prevención del Contrabando',
     });
   });
 
   it('valida tipoDocumento y datos', async () => {
-    const missingType = await request(app)
-      .post('/generate-document')
-      .send({ datos: {} });
+    const missingType = await request(app).post('/generate-document').send({ datos: {} });
     const invalidData = await request(app)
       .post('/generate-document')
       .send({ tipoDocumento: 'ACTA_INMOVILIZACION', datos: [] });
@@ -54,7 +46,9 @@ describe('POST /generate-document', () => {
   });
 
   it('devuelve 404 cuando no existe la plantilla', async () => {
-    generateDocumentMock.mockRejectedValue(new DocumentFlowError('template', 'Plantilla no encontrada'));
+    buildDocumentPdfMock.mockRejectedValue(
+      new DocumentFlowError('template', 'Plantilla no encontrada'),
+    );
 
     const response = await request(app)
       .post('/generate-document')
@@ -64,7 +58,7 @@ describe('POST /generate-document', () => {
     expect(response.body.error).toContain('Plantilla');
   });
 
-  it('rellena, genera, sube y guarda el documento', async () => {
+  it('rellena, genera y sube el PDF sin registrar fila en documents', async () => {
     const datos = {
       numeroActa: 'ACT-001',
       fecha: '2026-10-14',
@@ -78,14 +72,16 @@ describe('POST /generate-document', () => {
     expect(response.status).toBe(201);
     expect(response.body).toEqual({
       url: 'generated/ACTA_INMOVILIZACION/documento.pdf',
-      documentoId: 123,
       tipoDocumento: 'ACTA_INMOVILIZACION',
+      area: 'Prevención del Contrabando',
     });
-    expect(generateDocumentMock).toHaveBeenCalledWith('ACTA_INMOVILIZACION', datos);
+    expect(buildDocumentPdfMock).toHaveBeenCalledWith('ACTA_INMOVILIZACION', datos);
   });
 
   it('devuelve 500 si falla la conversión a PDF', async () => {
-    generateDocumentMock.mockRejectedValue(new DocumentFlowError('pdf', 'No se pudo generar el PDF'));
+    buildDocumentPdfMock.mockRejectedValue(
+      new DocumentFlowError('pdf', 'No se pudo generar el PDF'),
+    );
 
     const response = await request(app)
       .post('/generate-document')
@@ -108,15 +104,33 @@ describe('POST /generate-document', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe('Datos inválidos');
-    expect(response.body.errores).toEqual(expect.arrayContaining([
-      'Número de acta es requerido',
-      expect.stringContaining('Fecha debe tener formato'),
-      'RUC debe contener exactamente 11 dígitos',
-    ]));
-    expect(generateDocumentMock).not.toHaveBeenCalled();
+    expect(response.body.errores).toEqual(
+      expect.arrayContaining([
+        'Número de acta es requerido',
+        expect.stringContaining('Fecha debe tener formato'),
+        'RUC debe contener exactamente 11 dígitos',
+      ]),
+    );
+    expect(buildDocumentPdfMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /scan-and-generate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    processMobileDocumentMock.mockResolvedValue({
+      tipoDocumento: 'ACTA_INMOVILIZACION',
+      confianza: 0.9,
+      campos: { numeroActa: 'ACT-001', fecha: '2026-10-14' },
+      resumenEjecutivo: 'Acta detectada',
+      templateSugerido: 'ACTA_INMOVILIZACION',
+      pdfUrl: 'generated/ACTA_INMOVILIZACION/documento.pdf',
+      documentId: 'doc-1',
+      warnings: [],
+    });
   });
 
-  it('escanea la imagen y genera el PDF en un solo paso', async () => {
+  it('reutiliza el flujo de cámara (entrada + análisis + derivación + PDF)', async () => {
     const response = await request(app)
       .post('/scan-and-generate')
       .attach('file', Buffer.from('imagen'), {
@@ -128,15 +142,21 @@ describe('POST /generate-document', () => {
     expect(response.body).toEqual({
       tipoDocumento: 'ACTA_INMOVILIZACION',
       confianza: 0.9,
-      datos: { numeroActa: 'ACT-001', fecha: '2026-10-14' },
+      campos: { numeroActa: 'ACT-001', fecha: '2026-10-14' },
+      resumenEjecutivo: 'Acta detectada',
+      templateSugerido: 'ACTA_INMOVILIZACION',
       pdfUrl: 'generated/ACTA_INMOVILIZACION/documento.pdf',
-      documentoId: 123,
+      documentId: 'doc-1',
+      warnings: [],
     });
-    expect(scanMobileDocumentMock).toHaveBeenCalledWith(expect.any(Buffer), 'image/jpeg');
-    expect(generateDocumentMock).toHaveBeenCalledWith('ACTA_INMOVILIZACION', {
-      numeroActa: 'ACT-001',
-      fecha: '2026-10-14',
-    });
+    expect(processMobileDocumentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: 'acta.jpg',
+        mimeType: 'image/jpeg',
+        source: 'mobile',
+        fileBase64: expect.any(String),
+      }),
+    );
   });
 
   it('rechaza una petición scan-and-generate sin imagen', async () => {
@@ -144,6 +164,6 @@ describe('POST /generate-document', () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error).toContain('imagen');
-    expect(scanMobileDocumentMock).not.toHaveBeenCalled();
+    expect(processMobileDocumentMock).not.toHaveBeenCalled();
   });
 });
