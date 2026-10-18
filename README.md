@@ -93,16 +93,20 @@ cada Pull Request hacia esas ramas:
 
 | Job | Comprueba |
 |---|---|
-| `Lint, tipos, tests y build` | `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test` y `npm run build` |
+| `install` | `npm ci` (puerta de entrada) |
+| `typecheck` | `npm run typecheck` |
+| `lint` | `npm run lint` y `npm run format:check` |
+| `test` | `npm run test` |
+| `build` | `npm run build` |
 | `Escaneo de secretos` | Gitleaks sobre el historial completo |
 
-- Todo corre en **un solo job**: se instala una única vez (antes eran 5 jobs
-  encadenados que reinstalaban dependencias 5 veces).
+- `typecheck`, `lint`, `test` y `build` corren **en paralelo** (todos esperan a
+  `install`) en lugar de encadenarse, así el pipeline termina antes.
 - La versión de Node la fija `.nvmrc` (**22**, la misma que el `Dockerfile`).
 - `PUPPETEER_SKIP_DOWNLOAD=true`: los tests mockean Puppeteer, así que no se
   descarga Chromium.
 - Las ejecuciones antiguas de la misma rama se cancelan solas (`concurrency`).
 
-> Para que estos checks **bloqueen el merge**, márcalos como *required status
-> checks* en la protección de rama usando los nombres exactos de los jobs:
-> `Lint, tipos, tests y build` y `Escaneo de secretos`.
+> **No renombrar los jobs `install`, `typecheck`, `lint`, `test` y `build`**:
+> están fijados como *required status checks* en los rulesets `Proteccion-main`
+> y `proteccion-develop`. Si desaparecen, los Pull Request quedan bloqueados.
