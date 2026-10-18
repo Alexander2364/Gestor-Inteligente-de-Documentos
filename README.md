@@ -85,3 +85,24 @@ Los hooks de Git (Husky) se instalan solos al ejecutar `npm install` (script
 | Gitleaks | sí, si está instalado | sí |
 | `tsc --noEmit` | — | sí |
 | Vitest | — | sí |
+
+### Integración continua (GitHub Actions)
+
+`.github/workflows/main.yml` se ejecuta en cada push a `develop`/`main` y en
+cada Pull Request hacia esas ramas:
+
+| Job | Comprueba |
+|---|---|
+| `Lint, tipos, tests y build` | `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test` y `npm run build` |
+| `Escaneo de secretos` | Gitleaks sobre el historial completo |
+
+- Todo corre en **un solo job**: se instala una única vez (antes eran 5 jobs
+  encadenados que reinstalaban dependencias 5 veces).
+- La versión de Node la fija `.nvmrc` (**22**, la misma que el `Dockerfile`).
+- `PUPPETEER_SKIP_DOWNLOAD=true`: los tests mockean Puppeteer, así que no se
+  descarga Chromium.
+- Las ejecuciones antiguas de la misma rama se cancelan solas (`concurrency`).
+
+> Para que estos checks **bloqueen el merge**, márcalos como *required status
+> checks* en la protección de rama usando los nombres exactos de los jobs:
+> `Lint, tipos, tests y build` y `Escaneo de secretos`.

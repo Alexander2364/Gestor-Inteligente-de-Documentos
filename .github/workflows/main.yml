@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - develop
+      - main
 
   pull_request:
     branches:
@@ -12,9 +13,28 @@ on:
 
   workflow_dispatch:
 
+# Si se empuja de nuevo sobre la misma rama, cancela la ejecución anterior
+# en lugar de dejar dos pipelines compitiendo.
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+# Permisos mínimos: solo lectura del repositorio.
+permissions:
+  contents: read
+
+env:
+  # Los tests mockean puppeteer (vi.mock('puppeteer')), así que no hace falta
+  # descargar Chromium (~150 MB) en cada instalación.
+  PUPPETEER_SKIP_DOWNLOAD: 'true'
+
 jobs:
-  install:
+  # Un único job con todos los pasos. Antes había 5 jobs encadenados que
+  # reinstalaban dependencias 5 veces; así se instala una sola vez.
+  ci:
+    name: Lint, tipos, tests y build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Descargar código
@@ -23,44 +43,7 @@ jobs:
       - name: Configurar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-
-      - name: Instalar dependencias
-        run: npm ci
-
-  typecheck:
-    runs-on: ubuntu-latest
-    needs: install
-
-    steps:
-      - name: Descargar código
-        uses: actions/checkout@v4
-
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Instalar dependencias
-        run: npm ci
-
-      - name: Verificar TypeScript
-        run: npm run typecheck
-
-  lint:
-    runs-on: ubuntu-latest
-    needs: typecheck
-
-    steps:
-      - name: Descargar código
-        uses: actions/checkout@v4
-
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Instalar dependencias
@@ -72,48 +55,19 @@ jobs:
       - name: Verificar formato
         run: npm run format:check
 
-  test:
-    runs-on: ubuntu-latest
-    needs: lint
-
-    steps:
-      - name: Descargar código
-        uses: actions/checkout@v4
-
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Instalar dependencias
-        run: npm ci
+      - name: Verificar TypeScript
+        run: npm run typecheck
 
       - name: Ejecutar pruebas
         run: npm run test
-
-  build:
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - name: Descargar código
-        uses: actions/checkout@v4
-
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Instalar dependencias
-        run: npm ci
 
       - name: Compilar proyecto
         run: npm run build
 
   secrets:
+    name: Escaneo de secretos
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Descargar código
