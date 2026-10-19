@@ -207,4 +207,36 @@ describe('extractActaFields con ruido de OCR', () => {
     expect(fields.domicilio).toBe('JR. AMAZONAS 456, LIMA');
     expect(fields.matricula).toBe('XYZ-987');
   });
+
+  it('toma el fundamento de hecho y corta donde empieza el de derecho', () => {
+    const fields = extractActaFields(`
+			FUNDAMENTO DE HECHO
+			MERCANCIA NO DECLARADA
+			FUNDAMENTO DE DERECHO
+			Ley General de Aduanas D.Leg. 1053
+		`);
+
+    expect(fields.fundamentoHecho).toBe('MERCANCIA NO DECLARADA');
+    expect(fields.fundamentoDerecho).toBe('Ley General de Aduanas D.Leg. 1053');
+  });
+
+  it('descarta el fundamento de hecho cuando el OCR solo dejó restos', () => {
+    // Tal como salió del OCR real: el rótulo y el resto de la página pegados.
+    const fields = extractActaFields(`
+			FUNDAMENTO DE HECHO
+			6 | FUNDAMENTODE DERECHO — |
+		`);
+
+    expect(fields.fundamentoHecho).toBe('');
+  });
+
+  it('acota los campos de texto libre que arrastran media página', () => {
+    const relleno =
+      'conforme a lo registrado en el acta y en la documentacion adjunta al presente '.repeat(20);
+    const fields = extractActaFields(`OBSERVACIONES: MERCANCIA EN CUSTODIA. ${relleno}`);
+
+    expect(fields.observaciones.startsWith('MERCANCIA EN CUSTODIA.')).toBe(true);
+    expect(fields.observaciones.endsWith('…')).toBe(true);
+    expect(fields.observaciones.length).toBeLessThanOrEqual(241);
+  });
 });

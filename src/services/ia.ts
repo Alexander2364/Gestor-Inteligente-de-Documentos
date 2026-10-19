@@ -243,6 +243,23 @@ function isPlateValue(value: string): boolean {
   return compact.length >= 4 && compact.length <= 12;
 }
 
+/** ¿El texto tiene contenido real (al menos una palabra de tres letras)? */
+function hasTextualContent(value: string): boolean {
+  return /\p{L}{3,}/u.test(value) && !isActaNoise(value);
+}
+
+/**
+ * Deja un bloque de texto libre en una sola línea y acotado. El OCR a veces pega
+ * media página al campo "Fundamento de hecho" y el informe no debe arrastrarla.
+ */
+function compactLongText(value: string, maxLength = 240): string {
+  const singleLine = value.replace(/\s+/g, ' ').trim();
+  if (singleLine.length <= maxLength) return singleLine;
+  const cut = singleLine.slice(0, maxLength);
+  const lastBreak = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('; '));
+  return `${(lastBreak > 80 ? cut.slice(0, lastBreak) : cut).trim()}…`;
+}
+
 /**
  * Campos de texto de un acta que no deben mostrarse si traen ruido del OCR. Se usan
  * tanto al extraer como al componer el informe, para que un valor como "2 Z" (que ya
@@ -316,6 +333,18 @@ export function extractActaFields(text: string): Record<string, any> {
     return '';
   };
 
+  /**
+   * Lee un bloque de texto libre (fundamento de hecho/derecho, observaciones) y lo
+   * deja en una sola línea, acotado y sin ruido: el OCR suele pegar media página
+   * detrás de la etiqueta y el informe no debe arrastrarla.
+   */
+  const readLongText = (patterns: RegExp[]): string => {
+    const raw = read(patterns);
+    if (!raw) return '';
+    const value = compactLongText(raw);
+    return hasTextualContent(value) ? value : '';
+  };
+
   const type = detectActaType(text) ?? detectActaForm(text);
   const fields: Record<string, any> = {
     numeroActa: normalizeActaNumber(
@@ -366,16 +395,16 @@ export function extractActaFields(text: string): Record<string, any> {
       /\b(?:r[eé]gimen|operaci[oó]n)\s+(?:u\s+operaci[oó]n\s+)?aduanera\s*[:#-]?\s*([^\n]+)/i,
     ]),
     numeroDeclaracion: read([/\b(?:n[uú]mero\s+de\s+)?declaraci[oó]n\s*[:#-]?\s*([^\n,;]+)/i]),
-    fundamentoHecho: read([
-      /\bfundamento\s+de\s+hecho\s*[:#-]?\s*([\s\S]*?)(?=\n\s*fundamento\s+de\s+derecho\s*:|\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i,
+    fundamentoHecho: readLongText([
+      /\bfundamento\s*de\s*hecho\s*[:#-]?\s*([\s\S]*?)(?=\bfundamento\s*de\s*derecho|\bdescripci[oó]n\s+de\s+los\s+bienes|\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i,
     ]),
-    fundamentoDerecho: read([
+    fundamentoDerecho: readLongText([
       /\bfundamento\s+de\s+derecho\s*[:#-]?\s*([\s\S]*?)(?=\n\s*[A-ZÁÉÍÓÚ ]{3,}:|$)/i,
     ]),
     bienes: [],
     peso: read([/\bpeso\s*[:#-]?\s*([^\n]+)/i]),
     lugarCustodia: read([/\blugar\s+de\s+custodia(?:\s+o\s+almacenamiento)?\s*[:#-]?\s*([^\n]+)/i]),
-    observaciones: read([/\bobservaciones?\s*[:#-]?\s*([^\n]+)/i]),
+    observaciones: readLongText([/\bobservaciones?\s*[:#-]?\s*([^\n]+)/i]),
   };
 
   const itemPattern =
@@ -845,7 +874,7 @@ function buildKeyData(
       if (resumen) datos[FIELD_LABELS[key] ?? key] = resumen;
       continue;
     }
-    datos[FIELD_LABELS[key] ?? key] = String(value);
+    datos[FIELD_LABELS[key] ?? key] = compactLongText(String(value));
   }
   return datos;
 }
@@ -1309,7 +1338,11 @@ export function buildExecutiveSummary(
         );
       }
       if (campos.lugarCustodia) partes.push(`Custodia: ${campos.lugarCustodia}.`);
-      if (campos.fundamentoHecho) partes.push(`Fundamento de hecho: ${campos.fundamentoHecho}.`);
+      // El fundamento de hecho suele ser un párrafo largo; en el resumen solo cabe
+      // la frase corta, y si el OCR trajo basura mejor no arrastrarla al relato.
+      if (campos.fundamentoHecho && String(campos.fundamentoHecho).length <= 140) {
+        partes.push(`Fundamento de hecho: ${campos.fundamentoHecho}.`);
+      }
 
       const alertas = buildActaAlerts(tipoDocumento, campos, now);
       const plazo = alertas.find((alerta) => alerta.includes('días hábiles'));

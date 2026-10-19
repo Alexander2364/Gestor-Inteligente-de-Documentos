@@ -104,6 +104,16 @@ describe('informe ejecutivo de actas de aduana', () => {
     expect(resumen).not.toContain('2 Z');
     expect(resumen).not.toContain('Consignatario/intervenido');
   });
+
+  it('acota el texto libre largo que ya quedó guardado y no lo arrastra al resumen', () => {
+    const conBlob = { ...campos, fundamentoHecho: 'MERCANCIA NO DECLARADA. '.repeat(40) };
+    const informe = createExecutiveReport('ACTA_INMOVILIZACION', conBlob, 'resumen', HOY);
+    const resumen = buildExecutiveSummary('ACTA_INMOVILIZACION', conBlob, HOY);
+
+    expect(informe.datosClave['Fundamento de hecho'].endsWith('…')).toBe(true);
+    expect(informe.datosClave['Fundamento de hecho'].length).toBeLessThanOrEqual(241);
+    expect(resumen).not.toContain('Fundamento de hecho');
+  });
 });
 
 describe('informe ejecutivo de recaudación', () => {
