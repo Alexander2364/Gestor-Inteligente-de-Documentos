@@ -30,6 +30,14 @@ describe('classifierSchema (structured output de Gemini)', () => {
     expect(FULL_RESPONSE_SCHEMA.properties).toHaveProperty('informeEjecutivo');
     expect(COMPACT_RESPONSE_SCHEMA.properties).not.toHaveProperty('informeEjecutivo');
   });
+
+  it('la urgencia del informe es un enum de niveles, no texto libre', () => {
+    const informe = FULL_RESPONSE_SCHEMA.properties.informeEjecutivo as unknown as {
+      properties: { urgencia: { enum?: string[] } };
+    };
+
+    expect(informe.properties.urgencia.enum).toEqual(['ALTA', 'MEDIA', 'BAJA']);
+  });
 });
 
 describe('buildGeminiRequestBody', () => {

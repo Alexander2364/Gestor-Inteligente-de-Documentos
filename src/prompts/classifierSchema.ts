@@ -29,6 +29,14 @@ export const CLASSIFIER_TYPE_NAMES = [
   'ACTA_INCAUTACION',
 ] as const;
 
+/**
+ * Niveles de urgencia admitidos en el informe ejecutivo. Fuente única para el
+ * enum del esquema: la urgencia es un nivel, no un texto libre, así que el
+ * modelo no debe poder devolver cosas como
+ * "ALTA: revisar antes del vencimiento indicado".
+ */
+export const URGENCIA_LEVELS = ['ALTA', 'MEDIA', 'BAJA'] as const;
+
 const stringField = { type: 'string' };
 
 const BIEN_ITEM_SCHEMA = {
@@ -117,7 +125,7 @@ export const FULL_RESPONSE_SCHEMA = {
       properties: {
         tipoInforme: stringField,
         contexto: stringField,
-        urgencia: stringField,
+        urgencia: { type: 'string', enum: [...URGENCIA_LEVELS] },
         alertas: { type: 'array', items: stringField },
         accionesRequeridas: { type: 'array', items: stringField },
       },
