@@ -1,5 +1,5 @@
 import { extractText, SupportedMimeType } from './extractor';
-import { classifyDocument } from './ia';
+import { classifyDocument, isDocumentType } from './ia';
 import { DocumentJobData, DocumentJobResult, MobileDocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
 import type {
@@ -10,6 +10,7 @@ import type {
 } from '../types/supabase';
 import { getAreaByDocumentType, getDestinationEmailByDocumentType } from '../domain/sunat/areas';
 import { buildDocumentPdf, scanMobileDocument } from './documentFlow.service';
+import { buildReportFromFields } from './documentReadModel';
 import { validateDocumentData } from '../domain/templates/validators';
 
 const STORAGE_BUCKET = 'DocumentosIA';
@@ -547,11 +548,21 @@ export async function processMobileDocument(
       warnings: validation.errores,
     });
 
+    // 10. Componer el informe ejecutivo y el resumen para la respuesta. No se
+    // persisten (el historial los reconstruye con los mismos campos), pero la
+    // respuesta del escaneo debe traerlos: sin informe, la pantalla caía al
+    // volcado de campos crudos en lugar de mostrar el informe del gestor.
+    const now = new Date();
+    const report = isDocumentType(result.tipoDocumento)
+      ? buildReportFromFields(result.tipoDocumento, result.datos ?? {}, now)
+      : null;
+
     return {
       tipoDocumento: result.tipoDocumento,
       confianza: result.confianza,
       campos: result.datos,
-      resumenEjecutivo: result.resumenEjecutivo,
+      resumenEjecutivo: report?.resumenEjecutivo ?? result.resumenEjecutivo,
+      informeEjecutivo: report?.informeEjecutivo ?? {},
       templateSugerido: result.tipoDocumento,
       pdfUrl: generated.url,
       documentId,
