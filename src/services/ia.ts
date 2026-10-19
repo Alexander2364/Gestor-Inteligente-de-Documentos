@@ -956,10 +956,17 @@ function formatDatePe(date: Date): string {
 }
 
 /** "venció hace 3 día(s) (04/08/2026)" | "vence hoy (04/08/2026)" | "vence el ... (en 5 día(s))". */
+/** Tiempo transcurrido en lenguaje humano: "6 año(s)" en vez de "2404 día(s)". */
+function humanizeElapsed(days: number): string {
+  if (days >= 365) return `${Math.floor(days / 365)} año(s)`;
+  if (days >= 60) return `${Math.floor(days / 30)} mes(es)`;
+  return `${days} día(s)`;
+}
+
 function describeDeadline(due: Date, today: Date): string {
   const difference = daysBetween(today, due);
   if (difference < 0) {
-    return `venció hace ${Math.abs(difference)} día(s) (${formatDatePe(due)})`;
+    return `venció hace ${humanizeElapsed(Math.abs(difference))} (${formatDatePe(due)})`;
   }
   if (difference === 0) return `vence hoy (${formatDatePe(due)})`;
   return `vence el ${formatDatePe(due)} (en ${difference} día(s))`;
@@ -1325,6 +1332,22 @@ function resolveSubject(tipoDocumento: SunatDocumentType, campos: Record<string,
   return 'contribuyente no identificado';
 }
 
+/**
+ * Compone el resumen del gestor: primero el hecho verificable y después la
+ * lectura (qué falta confirmar, qué acción toca y qué riesgo hay si no se actúa).
+ * Es lo que convierte un volcado de datos en un análisis para decidir.
+ */
+function composeSummary(
+  hechos: string[],
+  analisis: { falta?: string; accion: string; riesgo: string },
+): string {
+  const partes = [...hechos];
+  if (analisis.falta) partes.push(`Falta por confirmar: ${analisis.falta}`);
+  partes.push(`Acción: ${analisis.accion}`);
+  partes.push(`Riesgo: ${analisis.riesgo}`);
+  return partes.join(' ');
+}
+
 export function buildExecutiveSummary(
   tipoDocumento: SunatDocumentType,
   campos: Record<string, any>,
@@ -1335,7 +1358,7 @@ export function buildExecutiveSummary(
     case 'ACTA_INMOVILIZACION':
     case 'ACTA_INCAUTACION': {
       const accion = tipoDocumento === 'ACTA_INMOVILIZACION' ? 'inmovilización' : 'incautación';
-      const partes = [
+      const hechos = [
         `Acta de ${accion}${campos.numeroActa ? ` N° ${campos.numeroActa}` : ''}${campos.fecha ? ` del ${campos.fecha}` : ''}${campos.lugarAccionControl ? `, en ${campos.lugarAccionControl}` : ''}.`,
       ];
       const nombreIdentificado = firstUsableActaValue(campos, [
@@ -1343,51 +1366,139 @@ export function buildExecutiveSummary(
         'apellidosNombres',
         'razonSocial',
       ]);
-      if (nombreIdentificado) partes.push(`Consignatario/intervenido: ${subject}.`);
+      if (nombreIdentificado) hechos.push(`Consignatario/intervenido: ${subject}.`);
       const mercancia = summarizeBienes(campos.bienes);
       if (mercancia) {
-        partes.push(`Mercancía: ${mercancia}${campos.peso ? ` (${campos.peso} kg)` : ''}.`);
+        hechos.push(`Mercancía: ${mercancia}${campos.peso ? ` (${campos.peso} kg)` : ''}.`);
       }
       if (campos.procedencia || campos.manifiesto) {
-        partes.push(
+        hechos.push(
           `Procedencia: ${campos.procedencia ?? 'no identificada'}${campos.manifiesto ? ` (manifiesto ${campos.manifiesto})` : ''}.`,
         );
       }
-      if (campos.lugarCustodia) partes.push(`Custodia: ${campos.lugarCustodia}.`);
-      // El fundamento de hecho suele ser un párrafo largo; en el resumen solo cabe
-      // la frase corta, y si el OCR trajo basura mejor no arrastrarla al relato.
-      if (campos.fundamentoHecho && String(campos.fundamentoHecho).length <= 140) {
-        partes.push(`Fundamento de hecho: ${campos.fundamentoHecho}.`);
+      if (campos.lugarCustodia && campos.lugarCustodia !== campos.lugarAccionControl) {
+        hechos.push(`Custodia: ${campos.lugarCustodia}.`);
       }
+      // El fundamento de hecho no entra al resumen: suele traer el texto crudo del
+      // formulario u OCR ilegible, y el gestor ya lo tiene en "Datos clave".
 
       const alertas = buildActaAlerts(tipoDocumento, campos, now);
-      const plazo = alertas.find((alerta) => alerta.includes('días hábiles'));
-      if (plazo) partes.push(plazo);
-      const historico = alertas.find((alerta) => alerta.includes('Han pasado'));
-      if (historico) partes.push(historico);
-      partes.push(
-        'Corresponde confirmar el estado del caso (levantamiento, devolución o comiso) y su valorización.',
-      );
-      return partes.join(' ');
+      if (alertas.some((alerta) => alerta.includes('venció'))) {
+        hechos.push(
+          'Los plazos legales para solicitar el levantamiento y la devolución ya vencieron.',
+        );
+      }
+      const faltanDatos = !campos.fecha || !nombreIdentificado || !mercancia;
+      return composeSummary(hechos, {
+        falta: faltanDatos
+          ? 'los datos que el acta no permite leer (fecha, interviniente o mercancía).'
+          : 'si hubo solicitud dentro del plazo, el estado final (levantamiento, devolución o comiso) y la valorización de la mercancía.',
+        accion:
+          'verificar el expediente y confirmar el estado final antes de disponer de la mercancía.',
+        riesgo: 'la mercancía queda sin destino definido y el expediente sin valorizar.',
+      });
     }
     case 'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO':
     case 'RESOLUCION_FRACCIONAMIENTO':
     case 'RESOLUCION_APLAZAMIENTO':
     case 'SOLICITUD_APLAZAMIENTO':
-      return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}: beneficio ${campos.modalidad ?? 'tributario'} por ${campos.totalDeuda ?? 'monto no identificado'}${campos.numeroCuotas ? ` en ${campos.numeroCuotas} cuotas` : ''}. Próximo vencimiento: ${campos.fechaVencimiento ?? 'no identificado'}. Estado: ${campos.condicion ?? 'pendiente de verificación'}. Validar firma, aceptación y cumplimiento del cronograma.`;
-    case 'ORDEN_PAGO_OP':
-      return `Orden de Pago de ${subject}: deuda exigible ${campos.totalDeuda ?? 'no identificada'}${campos.periodo ? ` del período ${campos.periodo}` : ''}. Vencimiento: ${campos.fechaVencimiento ?? 'no identificado'}. ${buildCollectableAlerts(campos, now).join(' ')} Exigir la cancelación total y verificar si corresponde iniciar cobranza coactiva.`;
+      return composeSummary(
+        [
+          `${tipoDocumento.replace(/_/g, ' ')} de ${subject}: beneficio ${campos.modalidad ?? 'tributario'} por ${campos.totalDeuda ?? 'monto no identificado'}${campos.numeroCuotas ? ` en ${campos.numeroCuotas} cuotas` : ''}.`,
+          `Próximo vencimiento: ${campos.fechaVencimiento ?? 'no identificado'}. Estado: ${campos.condicion ?? 'pendiente de verificación'}.`,
+        ],
+        {
+          falta:
+            'que la resolución esté notificada y aceptada y que el cronograma se esté cumpliendo.',
+          accion: 'validar firma y aceptación y controlar el pago de cada cuota.',
+          riesgo:
+            'si se incumple el cronograma, el beneficio se pierde y la deuda vuelve a ser exigible.',
+        },
+      );
+    case 'ORDEN_PAGO_OP': {
+      const vencida = buildCollectableAlerts(campos, now).some((alerta) =>
+        alerta.includes('venció'),
+      );
+      return composeSummary(
+        [
+          `Orden de Pago de ${subject}: deuda exigible ${campos.totalDeuda ?? 'no identificada'}${campos.periodo ? ` del período ${campos.periodo}` : ''}.`,
+          `Vencimiento: ${campos.fechaVencimiento ?? 'no identificado'}${vencida ? ' (ya vencido)' : ''}.`,
+        ],
+        {
+          falta: 'la constancia de notificación y si hay reclamo o impugnación pendiente.',
+          accion: 'exigir la cancelación total y evaluar el inicio de cobranza coactiva.',
+          riesgo: 'la deuda sigue generando intereses y la acción de cobro puede prescribir.',
+        },
+      );
+    }
     case 'RESOLUCION_DETERMINACION_RD':
     case 'RESOLUCION_MULTA_RM':
-      return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}${campos.periodo ? ` del período ${campos.periodo}` : ''} por ${campos.totalDeuda ?? 'monto no identificado'}. ${buildCollectableAlerts(campos, now).join(' ')} Confirmar la notificación y si existe reclamo o impugnación.`;
+      return composeSummary(
+        [
+          `${tipoDocumento.replace(/_/g, ' ')} de ${subject}${campos.periodo ? ` del período ${campos.periodo}` : ''} por ${campos.totalDeuda ?? 'monto no identificado'}.`,
+          `Vencimiento: ${campos.fechaVencimiento ?? 'no identificado'}.`,
+        ],
+        {
+          falta: 'la constancia de notificación y si existe reclamo o impugnación.',
+          accion: 'verificar el pago y, si no corresponde, evaluar la cobranza.',
+          riesgo: 'el acto queda sin ejecutar y el monto sin cobrar.',
+        },
+      );
     case 'DECLARACION_JURADA_MENSUAL':
     case 'DECLARACION_JURADA_ANUAL':
-      return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}${campos.periodo ? ` del período ${campos.periodo}` : ''}: ingresos ${campos.ingresos ?? 'no identificados'}, renta neta ${campos.rentaNeta ?? 'no identificada'} y saldo a pagar ${campos.saldoAPagar ?? 'no identificado'}. Validar firmas, consistencia y pago del saldo.`;
+      return composeSummary(
+        [
+          `${tipoDocumento.replace(/_/g, ' ')} de ${subject}${campos.periodo ? ` del período ${campos.periodo}` : ''}: ingresos ${campos.ingresos ?? 'no identificados'}, renta neta ${campos.rentaNeta ?? 'no identificada'} y saldo a pagar ${campos.saldoAPagar ?? 'no identificado'}.`,
+        ],
+        {
+          falta: 'validar firmas y consistencia de los importes declarados.',
+          accion: 'verificar el pago del saldo y observar las diferencias frente a lo registrado.',
+          riesgo:
+            'un saldo impago genera intereses y una declaración inconsistente puede observarse.',
+        },
+      );
     case 'SOLICITUD_INSCRIPCION_RUC':
     case 'ACTUALIZACION_RUC':
-      return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}: actividad ${campos.actividadPrincipal ?? campos.actividadEconomica ?? 'no identificada'}, régimen ${campos.regimenTributario ?? 'no identificado'} y domicilio ${campos.domicilioFiscal ?? 'no identificado'}. ${buildRegistryAlerts(campos, now).join(' ')}`;
+      return composeSummary(
+        [
+          `${tipoDocumento.replace(/_/g, ' ')} de ${subject}: actividad ${campos.actividadPrincipal ?? campos.actividadEconomica ?? 'no identificada'}, régimen ${campos.regimenTributario ?? 'no identificado'} y domicilio ${campos.domicilioFiscal ?? 'no identificado'}.`,
+        ],
+        {
+          falta: 'el domicilio fiscal cuando no aparece y la documentación de sustento.',
+          accion: 'validar los datos y registrar o actualizar el RUC.',
+          riesgo: 'un registro inconsistente afecta la fiscalización y las notificaciones.',
+        },
+      );
+    case 'REQUERIMIENTO_FISCALIZACION':
+    case 'AUDITORIA_LIBROS':
+    case 'CARTA_PRESENTACION':
+    case 'NOTIFICACION_ELECTRONICA':
+      return composeSummary(
+        [
+          `${tipoDocumento.replace(/_/g, ' ')} de ${subject}${campos.numeroDocumento ? ` N° ${campos.numeroDocumento}` : ''}${campos.periodo ? ` del período ${campos.periodo}` : ''}${campos.fecha ? `, notificado el ${campos.fecha}` : ''}.`,
+          campos.fechaVencimiento
+            ? `Plazo para responder: ${campos.fechaVencimiento}.`
+            : 'El documento no fija un plazo legible para responder.',
+        ],
+        {
+          falta: 'el detalle de lo pedido y la documentación que sustenta la respuesta.',
+          accion: 'atender lo pedido dentro del plazo y dejar constancia de la respuesta.',
+          riesgo:
+            'dejar vencer el plazo sin responder deja el expediente incompleto y puede generar una sanción.',
+        },
+      );
     default:
-      return `Documento ${tipoDocumento.replace(/_/g, ' ')} de ${subject}. Revisar los datos extraídos, validar su formalidad y ejecutar la acción correspondiente al área destinataria.`;
+      // Defensivo: si la base trajera una categoría fuera del enum, igual sale un
+      // resumen con la estructura de siempre en lugar de dejarlo vacío.
+      return composeSummary(
+        [`Documento ${String(tipoDocumento).replace(/_/g, ' ')} de ${subject}.`],
+        {
+          falta: 'los datos que el documento no permite leer.',
+          accion:
+            'revisar los datos extraídos, validar su formalidad y ejecutar la acción del área destinataria.',
+          riesgo: 'atender el documento con datos incompletos o fuera de plazo.',
+        },
+      );
   }
 }
 
