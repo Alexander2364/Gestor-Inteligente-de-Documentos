@@ -5,6 +5,7 @@ import {
   CLASSIFIER_TYPE_NAMES,
   COMPACT_RESPONSE_SCHEMA,
   FULL_RESPONSE_SCHEMA,
+  URGENCIA_LEVELS,
 } from '../prompts/classifierSchema';
 import {
   GEMINI_API_BASE,
@@ -38,6 +39,9 @@ export type SunatDocumentType =
   | 'ACTA_INMOVILIZACION'
   | 'ACTA_INCAUTACION';
 
+/** Nivel de urgencia del informe ejecutivo (ver `URGENCIA_LEVELS`). */
+export type UrgenciaInforme = (typeof URGENCIA_LEVELS)[number];
+
 export interface InformeEjecutivo {
   tipoInforme: string;
   contexto: string;
@@ -46,7 +50,7 @@ export interface InformeEjecutivo {
   analisisRiesgo?: Record<string, unknown>;
   estado?: string;
   analisisCumplimiento?: Record<string, unknown>;
-  urgencia?: string;
+  urgencia?: UrgenciaInforme;
   alertas?: string[];
   accionesRequeridas: string[];
   resumenEjecutivo: string;
@@ -1116,6 +1120,18 @@ function buildAlerts(
   }
 }
 
+/**
+ * Sanea el nivel de urgencia del informe. El modelo puede devolver el nivel con
+ * texto añadido ("ALTA: revisar antes del vencimiento indicado"), así que se
+ * conserva solo el nivel reconocido. Devuelve `undefined` si no hay ningún nivel
+ * válido, para no inventar una urgencia que el documento no permite determinar.
+ */
+export function normalizeUrgencia(value: unknown): UrgenciaInforme | undefined {
+  if (typeof value !== 'string') return undefined;
+  const nivel = value.toUpperCase().match(/\b(ALTA|MEDIA|BAJA)\b/)?.[1];
+  return URGENCIA_LEVELS.find((nivelValido) => nivelValido === nivel);
+}
+
 export function createExecutiveReport(
   tipoDocumento: SunatDocumentType,
   campos: Record<string, any>,
@@ -1190,7 +1206,7 @@ export function createExecutiveReport(
         contexto:
           'Documento de requerimiento de pago utilizado para determinar una deuda tributaria exigible y evaluar el inicio de cobranza coactiva.',
         estado: 'Pendiente de pago',
-        urgencia: campos.fechaVencimiento ? 'ALTA: revisar antes del vencimiento indicado' : 'ALTA',
+        urgencia: 'ALTA',
         analisisRiesgo: {
           exigibilidad: 'ALTO',
           observacion: 'El incumplimiento posterior al vencimiento puede activar cobranza coactiva',
@@ -1416,6 +1432,10 @@ function normalizeClassificationResult(
     identificacion: { ...asStringRecord(informe.identificacion), ...baseReport.identificacion },
     datosClave: { ...asRecord(informe.datosClave), ...baseReport.datosClave },
     resumenEjecutivo,
+    // La plantilla determinista manda. Si el tipo de documento no tiene plantilla
+    // propia, se sanea la urgencia que devolvió el modelo para que nunca llegue
+    // texto libre al informe (el campo es un nivel, no una frase).
+    urgencia: baseReport.urgencia ?? normalizeUrgencia(informe.urgencia),
   };
 
   return {
