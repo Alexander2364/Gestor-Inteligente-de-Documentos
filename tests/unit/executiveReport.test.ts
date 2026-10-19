@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildExecutiveSummary, createExecutiveReport } from '../../src/services/ia';
+import {
+  buildExecutiveSummary,
+  createExecutiveReport,
+  normalizeUrgencia,
+} from '../../src/services/ia';
+import { CLASSIFIER_TYPE_NAMES, URGENCIA_LEVELS } from '../../src/prompts/classifierSchema';
 
 /** Fecha fija de referencia (lunes) para que los plazos sean deterministas. */
 const HOY = new Date('2026-10-19T00:00:00Z');
@@ -243,5 +248,39 @@ describe('resumen ejecutivo en los tipos sin plantilla propia', () => {
     expect(buildExecutiveSummary('CARTA_PRESENTACION', {}, HOY)).toContain(
       'contribuyente no identificado',
     );
+  });
+});
+
+describe('urgencia del informe ejecutivo', () => {
+  it('marca la orden de pago como ALTA, sin texto pegado', () => {
+    const conVencimiento = createExecutiveReport(
+      'ORDEN_PAGO_OP',
+      { fechaVencimiento: '30/07/2026' },
+      'resumen',
+      HOY,
+    );
+    const sinVencimiento = createExecutiveReport('ORDEN_PAGO_OP', {}, 'resumen', HOY);
+
+    expect(conVencimiento.urgencia).toBe('ALTA');
+    expect(sinVencimiento.urgencia).toBe('ALTA');
+  });
+
+  it('cuando trae urgencia, siempre es un nivel y no texto libre', () => {
+    for (const tipo of CLASSIFIER_TYPE_NAMES) {
+      const informe = createExecutiveReport(tipo, {}, 'resumen', HOY);
+
+      if (informe.urgencia !== undefined) {
+        expect(URGENCIA_LEVELS).toContain(informe.urgencia);
+      }
+    }
+  });
+
+  it('sanea la urgencia que llega con explicación añadida', () => {
+    expect(normalizeUrgencia('ALTA: revisar antes del vencimiento indicado')).toBe('ALTA');
+    expect(normalizeUrgencia(' media ')).toBe('MEDIA');
+    expect(normalizeUrgencia('baja')).toBe('BAJA');
+    expect(normalizeUrgencia('urgente')).toBeUndefined();
+    expect(normalizeUrgencia(undefined)).toBeUndefined();
+    expect(normalizeUrgencia(7)).toBeUndefined();
   });
 });
