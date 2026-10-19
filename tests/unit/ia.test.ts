@@ -160,3 +160,83 @@ describe('classifyByKeywords (fallback local cuando Ollama no responde)', () => 
     expect(result.campos.tipoAccion).toBe('INMOVILIZACION');
   });
 });
+
+describe('extractActaFields con ruido de OCR', () => {
+  it('descarta el resto "2 Z" y toma el nombre de la línea siguiente', () => {
+    const fields = extractActaFields(`
+			APELLIDOS Y NOMBRES
+			2 Z
+			ALDAZ PESANTES, JHONNY
+		`);
+
+    expect(fields.apellidosNombres).toBe('ALDAZ PESANTES, JHONNY');
+  });
+
+  it('no toma el título de la sección siguiente como domicilio ni como matrícula', () => {
+    const fields = extractActaFields(`
+			DOMICILIO
+			RUC
+			AV. LOS ALISOS 1234, LIMA
+			MATRICULA
+			TIPO DE VEHICULO
+			ABC-123
+		`);
+
+    expect(fields.domicilio).toBe('AV. LOS ALISOS 1234, LIMA');
+    expect(fields.matricula).toBe('ABC-123');
+  });
+
+  it('extrae el consignatario cuando figura en el acta', () => {
+    const fields = extractActaFields(`
+			CONSIGNATARIO: SANTA CRUZ CABRERA, JUDITH KATHERINE
+			RUC: 20123456789
+		`);
+
+    expect(fields.consignatario).toBe('SANTA CRUZ CABRERA, JUDITH KATHERINE');
+    expect(fields.ruc).toBe('20123456789');
+  });
+
+  it('prefiere el valor de la misma línea cuando es un dato válido', () => {
+    const fields = extractActaFields(`
+			APELLIDOS Y NOMBRES: PEREZ GOMEZ, JUAN
+			DOMICILIO: JR. AMAZONAS 456, LIMA
+			MATRICULA: XYZ-987
+		`);
+
+    expect(fields.apellidosNombres).toBe('PEREZ GOMEZ, JUAN');
+    expect(fields.domicilio).toBe('JR. AMAZONAS 456, LIMA');
+    expect(fields.matricula).toBe('XYZ-987');
+  });
+
+  it('toma el fundamento de hecho y corta donde empieza el de derecho', () => {
+    const fields = extractActaFields(`
+			FUNDAMENTO DE HECHO
+			MERCANCIA NO DECLARADA
+			FUNDAMENTO DE DERECHO
+			Ley General de Aduanas D.Leg. 1053
+		`);
+
+    expect(fields.fundamentoHecho).toBe('MERCANCIA NO DECLARADA');
+    expect(fields.fundamentoDerecho).toBe('Ley General de Aduanas D.Leg. 1053');
+  });
+
+  it('descarta el fundamento de hecho cuando el OCR solo dejó restos', () => {
+    // Tal como salió del OCR real: el rótulo y el resto de la página pegados.
+    const fields = extractActaFields(`
+			FUNDAMENTO DE HECHO
+			6 | FUNDAMENTODE DERECHO — |
+		`);
+
+    expect(fields.fundamentoHecho).toBe('');
+  });
+
+  it('acota los campos de texto libre que arrastran media página', () => {
+    const relleno =
+      'conforme a lo registrado en el acta y en la documentacion adjunta al presente '.repeat(20);
+    const fields = extractActaFields(`OBSERVACIONES: MERCANCIA EN CUSTODIA. ${relleno}`);
+
+    expect(fields.observaciones.startsWith('MERCANCIA EN CUSTODIA.')).toBe(true);
+    expect(fields.observaciones.endsWith('…')).toBe(true);
+    expect(fields.observaciones.length).toBeLessThanOrEqual(241);
+  });
+});
