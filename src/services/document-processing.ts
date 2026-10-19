@@ -166,20 +166,8 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
       },
     ]);
 
-    // 6. Insertar metadatos extraídos
-    if (result.campos) {
-      const metadataPromises = Object.entries(result.campos).map(([field, value]) => {
-        return supabase.from('extracted_metadata').insert([
-          {
-            document_id: documentId,
-            field_name: field,
-            field_value: serializeFieldValue(value),
-            confidence: 100,
-          },
-        ]);
-      });
-      await Promise.all(metadataPromises);
-    }
+    // 6. Insertar metadatos extraídos (solo los campos con valor).
+    await insertExtractedFields(supabase, documentId!, result.campos);
 
     // 7. Insertar en document_derivations con status 'PENDING' para n8n
     let derivationId: string | undefined;
@@ -320,20 +308,8 @@ export async function processDocumentById(documentId: string): Promise<Record<st
       },
     ]);
 
-    // Insertar extracted_metadata
-    if (result.campos) {
-      const metaPromises = Object.entries(result.campos).map(([field, value]) => {
-        return supabase.from('extracted_metadata').insert([
-          {
-            document_id: doc.id,
-            field_name: field,
-            field_value: String(value || ''),
-            confidence: 100,
-          },
-        ]);
-      });
-      await Promise.all(metaPromises);
-    }
+    // Insertar extracted_metadata (solo los campos con valor).
+    await insertExtractedFields(supabase, doc.id, result.campos);
 
     // Insertar document_derivations con status 'PENDING'
     let derivationId: string | undefined;
@@ -499,19 +475,8 @@ export async function processMobileDocument(
       },
     ]);
 
-    // 8. Registrar los metadatos extraídos.
-    await Promise.all(
-      Object.entries(result.datos ?? {}).map(([field, value]) =>
-        supabase.from('extracted_metadata').insert([
-          {
-            document_id: documentId,
-            field_name: field,
-            field_value: serializeFieldValue(value),
-            confidence: 100,
-          },
-        ]),
-      ),
-    );
+    // 8. Registrar los metadatos extraídos (solo los campos con valor).
+    await insertExtractedFields(supabase, documentId, result.datos);
 
     // 9. Derivación en estado PENDING para que n8n sepa que debe notificarla.
     const area = getAreaByDocumentType(result.tipoDocumento);
@@ -571,4 +536,39 @@ export async function processMobileDocument(
 function serializeFieldValue(value: unknown): string {
   if (value === null || value === undefined) return '';
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+/**
+ * Filas de `extracted_metadata` para los campos que sí traen valor. Los vacíos no
+ * se guardan: en un acta de inmovilización eran 20 de 42 filas, y todas eran de
+ * otros tipos de documento (renta, vehículos), lo que ensuciaba la lectura.
+ * Tampoco se inventa una confianza por campo: la confianza real es la del documento.
+ */
+export function buildMetadataRows(
+  documentId: string,
+  campos: Record<string, unknown> | null | undefined,
+): Array<{ document_id: string; field_name: string; field_value: string }> {
+  return Object.entries(campos ?? {})
+    .map(([field, value]) => ({ field, value: serializeFieldValue(value).trim() }))
+    .filter(({ value }) => value !== '' && value !== '[]' && value !== '{}')
+    .map(({ field, value }) => ({
+      document_id: documentId,
+      field_name: field,
+      field_value: value,
+    }));
+}
+
+/** Inserta los campos con valor y deja rastro si la base rechaza la escritura. */
+async function insertExtractedFields(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  documentId: string,
+  campos: Record<string, unknown> | null | undefined,
+): Promise<void> {
+  const rows = buildMetadataRows(documentId, campos);
+  if (rows.length === 0) return;
+
+  const { error } = await supabase.from('extracted_metadata').insert(rows);
+  if (error) {
+    console.error(`[Document] No se pudieron guardar los campos extraídos: ${error.message}`);
+  }
 }

@@ -12,7 +12,7 @@ vi.mock('../../src/services/documentFlow.service', () => ({
   scanMobileDocument: scanMobileDocumentMock,
 }));
 
-import { processMobileDocument } from '../../src/services/document-processing';
+import { processMobileDocument, buildMetadataRows } from '../../src/services/document-processing';
 
 const inserted: Record<string, any[]> = {};
 
@@ -134,5 +134,30 @@ describe('processMobileDocument', () => {
     expect(result.warnings.length).toBeGreaterThan(0);
     expect(inserted.document_derivations).toHaveLength(1);
     expect(inserted.document_derivations[0].status).toBe('PENDING');
+    // Sin datos legibles no se guardan filas vacías ni se pierde la derivación.
+    expect(inserted.extracted_metadata).toBeUndefined();
+  });
+});
+
+describe('buildMetadataRows', () => {
+  it('solo guarda los campos con valor y no inventa confianza por campo', () => {
+    const rows = buildMetadataRows('doc-1', {
+      numeroActa: '235-0105-2020',
+      periodo: '',
+      ingresos: '   ',
+      bienes: [],
+      detalle: {},
+      peso: '3.4920',
+      listado: [{ numero: '1' }],
+      anulados: null,
+    });
+
+    expect(rows).toEqual([
+      { document_id: 'doc-1', field_name: 'numeroActa', field_value: '235-0105-2020' },
+      { document_id: 'doc-1', field_name: 'peso', field_value: '3.4920' },
+      { document_id: 'doc-1', field_name: 'listado', field_value: '[{"numero":"1"}]' },
+    ]);
+    // La confianza por campo era un 100 % fijo; ahora solo queda la del documento.
+    expect(Object.keys(rows[0])).toEqual(['document_id', 'field_name', 'field_value']);
   });
 });
