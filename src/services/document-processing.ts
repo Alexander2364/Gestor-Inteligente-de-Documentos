@@ -173,7 +173,7 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
           {
             document_id: documentId,
             field_name: field,
-            field_value: String(value || ''),
+            field_value: serializeFieldValue(value),
             confidence: 100,
           },
         ]);

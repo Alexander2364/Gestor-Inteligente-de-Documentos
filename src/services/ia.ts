@@ -66,7 +66,7 @@ export interface ClassificationResult {
 
 const VALID_TYPES: SunatDocumentType[] = [...CLASSIFIER_TYPE_NAMES] as SunatDocumentType[];
 
-function isDocumentType(value: unknown): value is SunatDocumentType {
+export function isDocumentType(value: unknown): value is SunatDocumentType {
   return typeof value === 'string' && VALID_TYPES.includes(value as SunatDocumentType);
 }
 
@@ -158,11 +158,160 @@ function isPlausibleDate(value: string): boolean {
   );
 }
 
+/**
+ * Etiquetas de sección del formulario de acta. Cuando el OCR devuelve una de
+ * ellas como si fuera el valor de un campo (p. ej. `DOMICILIO: RUC`), no es un
+ * dato: es el título de la sección siguiente.
+ */
+const ACTA_LABELS = new Set([
+  'APELLIDOS Y NOMBRES',
+  'NOMBRES Y APELLIDOS',
+  'CONSIGNATARIO',
+  'INTERVENIDO',
+  'DOMICILIO',
+  'DOMICILIO FISCAL',
+  'RUC',
+  'RAZON SOCIAL',
+  'EMPRESA TRANSPORTISTA',
+  'TIPO DE VEHICULO',
+  'MATRICULA',
+  'MANIFIESTO',
+  'PROCEDENCIA',
+  'DESTINO',
+  'DOCUMENTO DE TRANSPORTE',
+  'REGIMEN U OPERACION ADUANERA',
+  'DECLARACION',
+  'NUMERO DE DECLARACION',
+  'TIPO DE DOCUMENTO',
+  'NUMERO DE DOCUMENTO',
+  'FUNDAMENTO DE HECHO',
+  'FUNDAMENTO DE DERECHO',
+  'BIENES',
+  'MERCANCIAS',
+  'PESO',
+  'LUGAR DE CUSTODIA',
+  'OBSERVACIONES',
+  'FECHA',
+  'HORA',
+  'LUGAR DE ACCION DE CONTROL',
+  'TIPO DE ACCION',
+]);
+
+function deaccentUpper(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLocaleUpperCase('es')
+    .replace(/[.,:;#*?°º()[\]]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Descarta el ruido que el OCR devuelve como valor de un campo de acta: títulos de
+ * sección ("DOMICILIO", "MATRICULA") y cadenas sin texto real, como "2 Z" o "1.".
+ * Sin esto, esos restos acababan en campos como "Apellidos y Nombres".
+ */
+function isActaNoise(value: string): boolean {
+  const normalized = deaccentUpper(value);
+  if (!normalized) return true;
+  if (ACTA_LABELS.has(normalized)) return true;
+  for (const label of ACTA_LABELS) {
+    if (normalized.startsWith(`${label} `)) return true;
+  }
+  // Sin ninguna palabra de dos letras o más ("2 Z", "--", "1.").
+  if (!/\p{L}{2,}/u.test(normalized)) return true;
+  // Una sola letra suelta ("Z", "A B", "X Z").
+  if (/^[A-Z](\s+[A-Z])*$/.test(normalized)) return true;
+  return false;
+}
+
+/** ¿El valor parece el nombre de una persona o una razón social? */
+function isPersonNameValue(value: string): boolean {
+  return !isActaNoise(value) && value.replace(/[^\p{L}]/gu, '').length >= 3;
+}
+
+/** ¿El valor parece un domicilio o una dirección? */
+function isAddressValue(value: string): boolean {
+  return !isActaNoise(value) && value.replace(/[^\p{L}]/gu, '').length >= 4;
+}
+
+/** ¿El valor parece una matrícula o placa de vehículo? */
+function isPlateValue(value: string): boolean {
+  if (isActaNoise(value)) return false;
+  const compact = value.replace(/[^a-z0-9]/gi, '');
+  return compact.length >= 4 && compact.length <= 12;
+}
+
+/**
+ * Campos de texto de un acta que no deben mostrarse si traen ruido del OCR. Se usan
+ * tanto al extraer como al componer el informe, para que un valor como "2 Z" (que ya
+ * quedó guardado en documentos antiguos) no acabe presentado como "Apellidos y Nombres".
+ */
+const ACTA_TEXT_VALIDATORS: Record<string, (value: string) => boolean> = {
+  consignatario: isPersonNameValue,
+  apellidosNombres: isPersonNameValue,
+  razonSocial: isPersonNameValue,
+  domicilio: isAddressValue,
+  matricula: isPlateValue,
+};
+
+/** ¿El valor sirve para mostrarlo en el informe? En las actas, descarta ruido de OCR. */
+function isUsableValue(tipoDocumento: SunatDocumentType, key: string, value: unknown): boolean {
+  if (!isActaType(tipoDocumento)) return true;
+  const validator = ACTA_TEXT_VALIDATORS[key];
+  if (!validator || typeof value !== 'string') return true;
+  return validator(value);
+}
+
+/** Primer valor de acta que es un texto utilizable (descarta el ruido del OCR). */
+function firstUsableActaValue(campos: Record<string, any>, keys: string[]): string {
+  for (const key of keys) {
+    const value = campos[key];
+    if (value === undefined || value === null || value === '') continue;
+    const validator = ACTA_TEXT_VALIDATORS[key];
+    if (typeof value === 'string' && validator && !validator(value)) continue;
+    return String(value);
+  }
+  return '';
+}
+
 export function extractActaFields(text: string): Record<string, any> {
   const read = (patterns: RegExp[]): string => {
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match?.[1]?.trim()) return match[1].trim();
+    }
+    return '';
+  };
+
+  /**
+   * Lee un campo descartando el ruido del OCR. Si el texto que sigue a la etiqueta
+   * en la misma línea no es un valor plausible (el OCR partió la etiqueta y el
+   * valor, o devolvió "2 Z"), busca en las líneas siguientes a la etiqueta.
+   */
+  const readField = (
+    labels: string[],
+    accept: (value: string) => boolean,
+    normalize: (value: string) => string = (value) => value,
+  ): string => {
+    const prepare = (value: string) => normalize(value.replace(/\s+/g, ' ').trim());
+    const firstAccepted = (values: string[]) => values.map(prepare).find(accept);
+
+    for (const label of labels) {
+      const match = text.match(new RegExp(`${label}[^\\S\\n]*[:#-]?[^\\S\\n]*([^\\n]+)`, 'i'));
+      const accepted = match?.[1] ? firstAccepted([match[1]]) : undefined;
+      if (accepted) return accepted;
+    }
+    for (const label of labels) {
+      const block = text.match(new RegExp(`${label}[^\\n]*\\n([\\s\\S]{0,240})`, 'i'))?.[1];
+      if (!block) continue;
+      const lines = block
+        .split(/\r?\n/)
+        .filter((line) => line.trim())
+        .slice(0, 3);
+      const accepted = firstAccepted(lines);
+      if (accepted) return accepted;
     }
     return '';
   };
@@ -196,15 +345,19 @@ export function extractActaFields(text: string): Record<string, any> {
     lugarAccionControl: read([
       /\blugar\s+(?:de\s+la\s+)?acci[oó]n\s+(?:de\s+control)?\s*[:#-]?\s*([^\n]+)/i,
     ]),
-    apellidosNombres: read([
-      /\b(?:apellidos\s+y\s+nombres|nombres\s+y\s+apellidos)\s*[:#-]?\s*([^\n]+)/i,
-    ]),
+    apellidosNombres: readField(
+      ['\\b(?:apellidos\\s+y\\s+nombres|nombres\\s+y\\s+apellidos)\\b'],
+      isPersonNameValue,
+    ),
+    consignatario: readField(['\\bconsignatario\\b'], isPersonNameValue),
     razonSocial: read([/\b(?:raz[oó]n\s+social|empresa)\s*[:#-]?\s*([^\n]+)/i]),
     ruc: read([/\bruc\s*[:#-]?\s*(\d{11})/i]),
-    domicilio: read([/\bdomicilio\s*[:#-]?\s*([^\n]+)/i]),
+    domicilio: readField(['\\bdomicilio\\b(?!\\s+fiscal)'], isAddressValue),
     empresaTransportista: read([/\bempresa\s+transportista\s*[:#-]?\s*([^\n]+)/i]),
     tipoVehiculo: read([/\btipo\s+de\s+veh[ií]culo\s*[:#-]?\s*([^\n]+)/i]),
-    matricula: read([/\bmatr[ií]cula\s*[:#-]?\s*([^\n,;]+)/i]),
+    matricula: readField(['\\bmatr[ií]cula\\b'], isPlateValue, (value) =>
+      value.split(/[,;]/)[0].trim(),
+    ),
     manifiesto: read([/\bmanifiesto\s*[:#-]?\s*([^\n,;]+)/i]),
     procedencia: read([/\bprocedencia\s*[:#-]?\s*([^\n]+)/i]),
     destino: read([/\bdestino\s*[:#-]?\s*([^\n]+)/i]),
@@ -478,29 +631,505 @@ function extractFields(text: string): Record<string, string> {
   return fields;
 }
 
-function createExecutiveReport(
+// ---------------------------------------------------------------------------
+// Informe ejecutivo
+// ---------------------------------------------------------------------------
+
+/** Etiquetas legibles de los campos que se muestran en el informe. */
+const FIELD_LABELS: Record<string, string> = {
+  contribuyente: 'Contribuyente',
+  razonSocial: 'Razón social',
+  consignatario: 'Consignatario',
+  apellidosNombres: 'Apellidos y nombres',
+  ruc: 'RUC',
+  domicilio: 'Domicilio',
+  domicilioFiscal: 'Domicilio fiscal',
+  periodo: 'Período',
+  fecha: 'Fecha',
+  hora: 'Hora',
+  fechaEmision: 'Fecha de emisión',
+  fechaVencimiento: 'Vencimiento',
+  fechaInicio: 'Inicio de actividades',
+  fechaDeclaracion: 'Fecha de declaración',
+  ingresos: 'Ingresos totales',
+  deducciones: 'Deducciones totales',
+  rentaNeta: 'Renta neta',
+  tributoCalculado: 'Tributo calculado',
+  tributo: 'Tributo',
+  pagosCuenta: 'Pagos a cuenta',
+  saldoAPagar: 'Saldo a pagar',
+  totalDeuda: 'Deuda total',
+  deudaExigible: 'Deuda exigible',
+  intereses: 'Intereses al acogimiento',
+  impuestoRenta: 'Impuesto a la renta',
+  igv: 'IGV',
+  numeroCuotas: 'N° de cuotas',
+  modalidad: 'Modalidad',
+  condicion: 'Condición',
+  numeroActa: 'N° de acta',
+  tipoAccion: 'Tipo de acción',
+  numeroAccionControl: 'N° de acción de control',
+  lugarAccionControl: 'Lugar de control',
+  empresaTransportista: 'Empresa transportista',
+  tipoVehiculo: 'Tipo de vehículo',
+  matricula: 'Matrícula',
+  manifiesto: 'Manifiesto',
+  procedencia: 'Procedencia',
+  destino: 'Destino',
+  documentoTransporte: 'Documento de transporte',
+  regimenOperacionAduanera: 'Régimen u operación aduanera',
+  numeroDeclaracion: 'N° de declaración',
+  fundamentoHecho: 'Fundamento de hecho',
+  fundamentoDerecho: 'Fundamento de derecho',
+  bienes: 'Mercancía',
+  peso: 'Peso (kg)',
+  lugarCustodia: 'Lugar de custodia',
+  observaciones: 'Observaciones',
+  actividadPrincipal: 'Actividad principal',
+  ciiu: 'CIIU',
+  regimenTributario: 'Régimen tributario',
+  sistemas: 'Sistemas',
+  areaDestino: 'Área de destino',
+};
+
+const ACTA_KEY_FIELDS = [
+  'numeroActa',
+  'tipoAccion',
+  'fecha',
+  'hora',
+  'lugarAccionControl',
+  'numeroAccionControl',
+  'consignatario',
+  'apellidosNombres',
+  'razonSocial',
+  'ruc',
+  'empresaTransportista',
+  'manifiesto',
+  'procedencia',
+  'destino',
+  'numeroDeclaracion',
+  'fechaDeclaracion',
+  'regimenOperacionAduanera',
+  'fundamentoHecho',
+  'fundamentoDerecho',
+  'bienes',
+  'peso',
+  'lugarCustodia',
+];
+
+/** Campos que se muestran en "Datos clave", en orden, según el tipo de documento. */
+const KEY_FIELDS: Record<string, string[]> = {
+  ACTA_INMOVILIZACION: ACTA_KEY_FIELDS,
+  ACTA_INCAUTACION: ACTA_KEY_FIELDS,
+  SOLICITUD_INSCRIPCION_RUC: [
+    'razonSocial',
+    'ruc',
+    'actividadPrincipal',
+    'ciiu',
+    'fechaInicio',
+    'domicilioFiscal',
+    'regimenTributario',
+    'sistemas',
+  ],
+  ACTUALIZACION_RUC: [
+    'razonSocial',
+    'ruc',
+    'actividadPrincipal',
+    'ciiu',
+    'domicilioFiscal',
+    'regimenTributario',
+    'sistemas',
+  ],
+  DECLARACION_JURADA_MENSUAL: [
+    'contribuyente',
+    'ruc',
+    'periodo',
+    'ingresos',
+    'deducciones',
+    'rentaNeta',
+    'tributoCalculado',
+    'pagosCuenta',
+    'saldoAPagar',
+    'fechaVencimiento',
+  ],
+  DECLARACION_JURADA_ANUAL: [
+    'contribuyente',
+    'ruc',
+    'periodo',
+    'ingresos',
+    'deducciones',
+    'rentaNeta',
+    'tributoCalculado',
+    'pagosCuenta',
+    'saldoAPagar',
+  ],
+  RESOLUCION_FRACCIONAMIENTO: [
+    'contribuyente',
+    'ruc',
+    'modalidad',
+    'totalDeuda',
+    'intereses',
+    'numeroCuotas',
+    'fechaVencimiento',
+    'condicion',
+  ],
+  RESOLUCION_APLAZAMIENTO: [
+    'contribuyente',
+    'ruc',
+    'modalidad',
+    'totalDeuda',
+    'numeroCuotas',
+    'fechaVencimiento',
+    'condicion',
+  ],
+  ORDEN_PAGO_OP: [
+    'contribuyente',
+    'ruc',
+    'periodo',
+    'impuestoRenta',
+    'igv',
+    'intereses',
+    'totalDeuda',
+    'fechaEmision',
+    'fechaVencimiento',
+  ],
+  RESOLUCION_DETERMINACION_RD: [
+    'contribuyente',
+    'ruc',
+    'periodo',
+    'tributo',
+    'totalDeuda',
+    'fechaVencimiento',
+  ],
+  RESOLUCION_MULTA_RM: ['contribuyente', 'ruc', 'periodo', 'totalDeuda', 'fechaVencimiento'],
+};
+
+const DEFAULT_KEY_FIELDS = [
+  'contribuyente',
+  'razonSocial',
+  'ruc',
+  'periodo',
+  'totalDeuda',
+  'saldoAPagar',
+  'fechaVencimiento',
+];
+
+/** Resume la mercancía de un acta: "10 cajas de repuestos; 5 unidades de motores". */
+function summarizeBienes(bienes: unknown): string {
+  if (!Array.isArray(bienes)) return '';
+  return bienes
+    .map((bien) => {
+      const item = asRecord(bien);
+      const cantidad = item.cantidad ? String(item.cantidad) : '';
+      const unidad = item.unidadMedida ? ` ${String(item.unidadMedida)}` : '';
+      const descripcion = item.descripcion ? ` de ${String(item.descripcion)}` : '';
+      return `${cantidad}${unidad}${descripcion}`.trim();
+    })
+    .filter(Boolean)
+    .join('; ');
+}
+
+/** Datos clave del documento con etiqueta legible, en el orden del tipo. */
+function buildKeyData(
   tipoDocumento: SunatDocumentType,
-  campos: Record<string, string>,
+  campos: Record<string, any>,
+): Record<string, string> {
+  const keys = KEY_FIELDS[tipoDocumento] ?? DEFAULT_KEY_FIELDS;
+  const datos: Record<string, string> = {};
+  for (const key of keys) {
+    const value = campos[key];
+    if (value === undefined || value === null || value === '') continue;
+    if (!isUsableValue(tipoDocumento, key, value)) continue;
+    if (Array.isArray(value)) {
+      const resumen = summarizeBienes(value);
+      if (resumen) datos[FIELD_LABELS[key] ?? key] = resumen;
+      continue;
+    }
+    datos[FIELD_LABELS[key] ?? key] = String(value);
+  }
+  return datos;
+}
+
+/** Identificación del contribuyente (o del intervenido, en las actas). */
+function buildIdentificacion(
+  tipoDocumento: SunatDocumentType,
+  campos: Record<string, any>,
+): Record<string, string> {
+  const identificacion: Record<string, string> = {};
+  const push = (label: string, key: string, value: unknown) => {
+    if (value === undefined || value === null || String(value).trim() === '') return;
+    if (!isUsableValue(tipoDocumento, key, value)) return;
+    identificacion[label] = String(value);
+  };
+
+  if (isActaType(tipoDocumento)) {
+    push('Consignatario', 'consignatario', campos.consignatario);
+    push('Intervenido', 'apellidosNombres', campos.apellidosNombres);
+    push('Razón social', 'razonSocial', campos.razonSocial);
+    push('RUC', 'ruc', campos.ruc);
+    push('Domicilio', 'domicilio', campos.domicilio);
+    push('Empresa transportista', 'empresaTransportista', campos.empresaTransportista);
+  } else {
+    push('Contribuyente', 'contribuyente', campos.contribuyente || campos.razonSocial);
+    push('RUC', 'ruc', campos.ruc);
+    push('Domicilio fiscal', 'domicilioFiscal', campos.domicilioFiscal || campos.domicilio);
+  }
+  return identificacion;
+}
+
+/** Suma días hábiles (lunes a viernes) a una fecha. No considera feriados. */
+function addBusinessDays(from: Date, days: number): Date {
+  const date = new Date(from.getTime());
+  let remaining = days;
+  while (remaining > 0) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    const weekday = date.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) remaining -= 1;
+  }
+  return date;
+}
+
+/** Convierte "04/03/2020" o "2020-03-04" a fecha UTC; null si no es válida. */
+function parseDocumentDate(value?: unknown): Date | null {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const date = new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
+    return date.getUTCMonth() === Number(iso[2]) - 1 ? date : null;
+  }
+
+  const slashed = text.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})$/);
+  if (!slashed) return null;
+  const year = Number(slashed[3]) < 100 ? 2000 + Number(slashed[3]) : Number(slashed[3]);
+  const date = new Date(Date.UTC(year, Number(slashed[2]) - 1, Number(slashed[1])));
+  return date.getUTCMonth() === Number(slashed[2]) - 1 ? date : null;
+}
+
+function startOfDayUtc(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function daysBetween(from: Date, to: Date): number {
+  return Math.round((to.getTime() - from.getTime()) / 86400000);
+}
+
+function formatDatePe(date: Date): string {
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${day}/${month}/${date.getUTCFullYear()}`;
+}
+
+/** "venció hace 3 día(s) (04/08/2026)" | "vence hoy (04/08/2026)" | "vence el ... (en 5 día(s))". */
+function describeDeadline(due: Date, today: Date): string {
+  const difference = daysBetween(today, due);
+  if (difference < 0) {
+    return `venció hace ${Math.abs(difference)} día(s) (${formatDatePe(due)})`;
+  }
+  if (difference === 0) return `vence hoy (${formatDatePe(due)})`;
+  return `vence el ${formatDatePe(due)} (en ${difference} día(s))`;
+}
+
+function buildActaAlerts(
+  tipoDocumento: SunatDocumentType,
+  campos: Record<string, any>,
+  now: Date,
+): string[] {
+  const alerts: string[] = [];
+  const hoy = startOfDayUtc(now);
+  const fechaActa = parseDocumentDate(campos.fecha);
+
+  if (fechaActa) {
+    if (tipoDocumento === 'ACTA_INMOVILIZACION') {
+      alerts.push(
+        `Plazo de 10 días hábiles para solicitar el levantamiento de la inmovilización: ${describeDeadline(addBusinessDays(fechaActa, 10), hoy)}.`,
+      );
+      alerts.push(
+        `Plazo de 20 días hábiles para solicitar la devolución de la mercancía: ${describeDeadline(addBusinessDays(fechaActa, 20), hoy)}.`,
+      );
+    } else {
+      alerts.push(
+        'La mercancía incautada queda a disposición de la autoridad aduanera: confirmar el expediente y el destino final.',
+      );
+    }
+    const anios = Math.floor(daysBetween(fechaActa, hoy) / 365);
+    if (anios >= 1) {
+      alerts.push(
+        `Han pasado ${anios} año(s) desde el acta (${formatDatePe(fechaActa)}): confirmar el estado final del caso (levantamiento, devolución o comiso) y su valorización.`,
+      );
+    }
+  } else {
+    alerts.push(
+      'No se identificó la fecha del acta: sin ella no se pueden calcular los plazos legales.',
+    );
+  }
+
+  if (!campos.numeroActa) alerts.push('No se identificó el número de acta.');
+  if (!Array.isArray(campos.bienes) || campos.bienes.length === 0) {
+    alerts.push('No se identificaron los bienes de la mercancía.');
+  }
+  if (!firstUsableActaValue(campos, ['consignatario', 'apellidosNombres', 'razonSocial'])) {
+    alerts.push('No se identificó al consignatario ni al intervenido: revisar el acta original.');
+  }
+  return alerts;
+}
+
+function buildCollectableAlerts(campos: Record<string, any>, now: Date): string[] {
+  const alerts: string[] = [];
+  const hoy = startOfDayUtc(now);
+  const vencimiento = parseDocumentDate(campos.fechaVencimiento);
+
+  if (vencimiento) {
+    alerts.push(`Fecha de vencimiento: ${describeDeadline(vencimiento, hoy)}.`);
+    if (daysBetween(hoy, vencimiento) < 0) {
+      alerts.push('Plazo de pago vencido: los intereses moratorios siguen acumulándose.');
+    }
+  } else {
+    alerts.push('No se identificó la fecha de vencimiento.');
+  }
+  if (!campos.totalDeuda && !campos.saldoAPagar) {
+    alerts.push('No se identificó el monto exigible.');
+  }
+  return alerts;
+}
+
+function buildInstalmentAlerts(campos: Record<string, any>, now: Date): string[] {
+  const alerts: string[] = [];
+  const hoy = startOfDayUtc(now);
+  const primerVencimiento = parseDocumentDate(campos.fechaVencimiento);
+
+  if (primerVencimiento) {
+    alerts.push(`Primer vencimiento del cronograma: ${describeDeadline(primerVencimiento, hoy)}.`);
+    if (daysBetween(hoy, primerVencimiento) < 0) {
+      alerts.push(
+        'El primer vencimiento ya pasó: verificar el pago de la cuota antes de evaluar la pérdida del beneficio.',
+      );
+    }
+  } else {
+    alerts.push('No se identificó el primer vencimiento del cronograma.');
+  }
+  if (!campos.numeroCuotas) alerts.push('No se identificó el número de cuotas.');
+  return alerts;
+}
+
+function buildDeclarationAlerts(campos: Record<string, any>, now: Date): string[] {
+  const alerts: string[] = [];
+  if (campos.saldoAPagar) {
+    alerts.push(`Saldo por pagar de ${campos.saldoAPagar} sin constancia de pago en el documento.`);
+  } else {
+    alerts.push('No se identificó el saldo a pagar: verificar el tributo resultante.');
+  }
+  if (campos.ingresos && campos.rentaNeta) {
+    alerts.push(
+      'Cruzar ingresos y deducciones con facturación electrónica, bancos y declaraciones previas.',
+    );
+  }
+  const vencimiento = parseDocumentDate(campos.fechaVencimiento);
+  if (vencimiento) {
+    alerts.push(
+      `Vencimiento de la declaración: ${describeDeadline(vencimiento, startOfDayUtc(now))}.`,
+    );
+  }
+  return alerts;
+}
+
+function buildRegistryAlerts(campos: Record<string, any>, now: Date): string[] {
+  const alerts: string[] = [];
+  const inicio = parseDocumentDate(campos.fechaInicio);
+  if (inicio) {
+    alerts.push(`Inicio de actividades: ${formatDatePe(inicio)}.`);
+    if (daysBetween(inicio, startOfDayUtc(now)) <= 365) {
+      alerts.push('Contribuyente nuevo: incluirlo en el seguimiento de contribuyentes nuevos.');
+    }
+  }
+  alerts.push(
+    'Afecto a declaraciones desde el inicio de actividades: verificar presentación y pago de sus obligaciones mensuales.',
+  );
+  if (!campos.domicilioFiscal) {
+    alerts.push(
+      'No se identificó el domicilio fiscal: validarlo antes de registrar o actualizar el RUC.',
+    );
+  }
+  return alerts;
+}
+
+/** Alertas y observaciones del informe, calculadas a partir de los datos del documento. */
+function buildAlerts(
+  tipoDocumento: SunatDocumentType,
+  campos: Record<string, any>,
+  now: Date,
+): string[] {
+  switch (tipoDocumento) {
+    case 'ACTA_INMOVILIZACION':
+    case 'ACTA_INCAUTACION':
+      return buildActaAlerts(tipoDocumento, campos, now);
+    case 'ORDEN_PAGO_OP':
+    case 'RESOLUCION_DETERMINACION_RD':
+    case 'RESOLUCION_MULTA_RM':
+      return buildCollectableAlerts(campos, now);
+    case 'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO':
+    case 'RESOLUCION_FRACCIONAMIENTO':
+    case 'RESOLUCION_APLAZAMIENTO':
+    case 'SOLICITUD_APLAZAMIENTO':
+      return buildInstalmentAlerts(campos, now);
+    case 'DECLARACION_JURADA_MENSUAL':
+    case 'DECLARACION_JURADA_ANUAL':
+      return buildDeclarationAlerts(campos, now);
+    case 'SOLICITUD_INSCRIPCION_RUC':
+    case 'ACTUALIZACION_RUC':
+      return buildRegistryAlerts(campos, now);
+    default:
+      return campos.fechaVencimiento
+        ? [`Vencimiento indicado en el documento: ${String(campos.fechaVencimiento)}.`]
+        : [];
+  }
+}
+
+export function createExecutiveReport(
+  tipoDocumento: SunatDocumentType,
+  campos: Record<string, any>,
   summary: string,
+  now: Date = new Date(),
 ): InformeEjecutivo {
   const area = getAreaByDocumentType(tipoDocumento);
-  const subject = campos.contribuyente
-    ? `${campos.contribuyente}${campos.ruc ? ` (RUC: ${campos.ruc})` : ''}`
-    : campos.ruc
-      ? `RUC ${campos.ruc}`
-      : 'contribuyente no identificado';
+  const alertas = buildAlerts(tipoDocumento, campos, now);
   const base = {
     tipoInforme: tipoDocumento,
-    identificacion: {
-      contribuyente: subject,
-      ...(campos.ruc ? { ruc: campos.ruc } : {}),
-    },
-    datosClave: { ...campos, areaDestino: area },
+    identificacion: buildIdentificacion(tipoDocumento, campos),
+    datosClave: { ...buildKeyData(tipoDocumento, campos), areaDestino: area },
+    alertas,
     accionesRequeridas: ['Verificar la clasificación y la integridad de los campos extraídos'],
     resumenEjecutivo: summary,
   };
 
   switch (tipoDocumento) {
+    case 'ACTA_INMOVILIZACION':
+    case 'ACTA_INCAUTACION': {
+      const plazosVencidos = alertas.some((alerta) => alerta.includes('venció'));
+      return {
+        ...base,
+        contexto:
+          'Acta de control aduanero dirigida al área de Prevención del Contrabando y Fiscalización Aduanera. El análisis debe confirmar la situación de la mercancía, el cumplimiento de los plazos legales y el destino final del caso.',
+        estado:
+          tipoDocumento === 'ACTA_INMOVILIZACION'
+            ? 'Mercancía en custodia (inmovilización)'
+            : 'Mercancía incautada',
+        urgencia: plazosVencidos ? 'ALTA' : 'MEDIA',
+        analisisRiesgo: {
+          urgencia: plazosVencidos ? 'ALTO' : 'MEDIO',
+          observacion:
+            'Si los plazos de levantamiento o devolución vencieron, el caso pasa a incautación o comiso y la mercancía puede perderse para el contribuyente.',
+        },
+        accionesRequeridas: [
+          'Verificar si hubo solicitud de levantamiento o devolución dentro del plazo',
+          'Confirmar si el caso pasó a incautación o comiso',
+          'Registrar la valorización de la mercancía y su recepción en almacén',
+          'Consolidar el expediente con el manifiesto, la declaración y la procedencia',
+        ],
+      };
+    }
     case 'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO':
     case 'RESOLUCION_FRACCIONAMIENTO':
     case 'RESOLUCION_APLAZAMIENTO':
@@ -510,6 +1139,7 @@ function createExecutiveReport(
         contexto:
           'Documento que concede o solicita un beneficio de aplazamiento o fraccionamiento. El control debe centrarse en la vigencia, aceptación y cumplimiento del cronograma de pagos.',
         estado: campos.condicion ?? 'Pendiente de verificación',
+        urgencia: alertas.some((alerta) => alerta.includes('venció')) ? 'ALTA' : 'MEDIA',
         analisisCumplimiento: {
           beneficio: 'En curso o solicitado',
           control: 'Validar cuotas pagadas y próximo vencimiento',
@@ -522,6 +1152,7 @@ function createExecutiveReport(
           'Validar firma del funcionario competente',
           'Confirmar aceptación del deudor',
           'Verificar el cronograma y el primer vencimiento',
+          'Controlar el pago de cada cuota y el saldo pendiente',
         ],
       };
     case 'ORDEN_PAGO_OP':
@@ -532,13 +1163,53 @@ function createExecutiveReport(
         estado: 'Pendiente de pago',
         urgencia: campos.fechaVencimiento ? 'ALTA: revisar antes del vencimiento indicado' : 'ALTA',
         analisisRiesgo: {
-          exigibilidad: 'ALTA',
+          exigibilidad: 'ALTO',
           observacion: 'El incumplimiento posterior al vencimiento puede activar cobranza coactiva',
         },
         accionesRequeridas: [
           'Exigir la cancelación total',
           'Validar deuda, intereses y fecha de vencimiento',
           'Verificar el pago en el sistema antes de derivar a cobranza coactiva',
+          'Consolidar el expediente del contribuyente con sus demás deudas',
+        ],
+      };
+    case 'RESOLUCION_DETERMINACION_RD':
+    case 'RESOLUCION_MULTA_RM':
+      return {
+        ...base,
+        contexto:
+          'Resolución emitida por el área de fiscalización que determina una deuda o una sanción. El análisis debe confirmar la notificación, la exigibilidad y si existe reclamo o impugnación.',
+        estado: 'Notificada, pendiente de verificación',
+        urgencia: 'ALTA',
+        analisisRiesgo: {
+          exigibilidad: 'ALTO',
+          observacion:
+            'Sin pago ni reclamo dentro del plazo, corresponde el inicio de la cobranza coactiva',
+        },
+        accionesRequeridas: [
+          'Verificar la fecha y la forma de notificación',
+          'Comprobar si existe pago, reclamo o impugnación',
+          'Actualizar los intereses a la fecha',
+          'Derivar a cobranza coactiva si no hay respuesta',
+        ],
+      };
+    case 'REQUERIMIENTO_FISCALIZACION':
+    case 'AUDITORIA_LIBROS':
+      return {
+        ...base,
+        contexto:
+          'Documento de fiscalización parcial o definitiva dirigido al contribuyente. El análisis debe confirmar el plazo otorgado y la documentación exigida.',
+        estado: 'Requerimiento pendiente de respuesta',
+        urgencia: 'ALTA',
+        analisisRiesgo: {
+          incumplimiento: 'ALTO',
+          observacion:
+            'La falta de respuesta en el plazo otorgado puede generar presunciones y sanciones',
+        },
+        accionesRequeridas: [
+          'Identificar el plazo otorgado y la documentación exigida',
+          'Confirmar si el contribuyente presentó la información',
+          'Evaluar el resultado del requerimiento o la auditoría',
         ],
       };
     case 'DECLARACION_JURADA_MENSUAL':
@@ -547,6 +1218,8 @@ function createExecutiveReport(
         ...base,
         contexto:
           'Documento de autoliquidación del contribuyente. Sirve para verificar la consistencia entre ingresos, deducciones, tributo determinado y pagos realizados.',
+        estado: campos.saldoAPagar ? 'Saldo pendiente de pago' : 'Presentada',
+        urgencia: campos.saldoAPagar ? 'ALTA' : 'MEDIA',
         analisisCumplimiento: {
           declaracion: 'Presentada según el documento',
           saldo: campos.saldoAPagar
@@ -570,6 +1243,12 @@ function createExecutiveReport(
         ...base,
         contexto:
           'Documento registral que crea o actualiza la información del contribuyente en el RUC. La exactitud del domicilio y la actividad determina futuras obligaciones y notificaciones.',
+        estado: 'Pendiente de validación registral',
+        urgencia: 'MEDIA',
+        analisisCumplimiento: {
+          inscripcion: 'Solicitada',
+          obligaciones: 'Afecto a declaraciones desde el inicio de actividades',
+        },
         analisisRiesgo: {
           fiscalizacion: campos.sistemas?.toLowerCase().includes('manual') ? 'ALTO' : 'MEDIO',
           observacion:
@@ -579,6 +1258,7 @@ function createExecutiveReport(
           'Validar identidad y RUC',
           'Confirmar domicilio fiscal y actividad económica',
           'Verificar régimen tributario y sistemas declarados',
+          'Incluir al contribuyente en el seguimiento de declaraciones mensuales',
         ],
       };
     default:
@@ -589,29 +1269,74 @@ function createExecutiveReport(
   }
 }
 
-function buildExecutiveSummary(
+/** Identifica al sujeto del documento: contribuyente, consignatario o intervenido. */
+function resolveSubject(tipoDocumento: SunatDocumentType, campos: Record<string, any>): string {
+  const nombre = isActaType(tipoDocumento)
+    ? firstUsableActaValue(campos, ['consignatario', 'apellidosNombres', 'razonSocial'])
+    : campos.contribuyente || campos.consignatario || campos.apellidosNombres || campos.razonSocial;
+  if (nombre && campos.ruc) return `${nombre} (RUC: ${campos.ruc})`;
+  if (nombre) return String(nombre);
+  if (campos.ruc) return `RUC ${campos.ruc}`;
+  return 'contribuyente no identificado';
+}
+
+export function buildExecutiveSummary(
   tipoDocumento: SunatDocumentType,
-  campos: Record<string, string>,
+  campos: Record<string, any>,
+  now: Date = new Date(),
 ): string {
-  const subject = campos.contribuyente
-    ? `${campos.contribuyente}${campos.ruc ? ` (RUC: ${campos.ruc})` : ''}`
-    : campos.ruc
-      ? `RUC ${campos.ruc}`
-      : 'contribuyente no identificado';
+  const subject = resolveSubject(tipoDocumento, campos);
   switch (tipoDocumento) {
+    case 'ACTA_INMOVILIZACION':
+    case 'ACTA_INCAUTACION': {
+      const accion = tipoDocumento === 'ACTA_INMOVILIZACION' ? 'inmovilización' : 'incautación';
+      const partes = [
+        `Acta de ${accion}${campos.numeroActa ? ` N° ${campos.numeroActa}` : ''}${campos.fecha ? ` del ${campos.fecha}` : ''}${campos.lugarAccionControl ? `, en ${campos.lugarAccionControl}` : ''}.`,
+      ];
+      const nombreIdentificado = firstUsableActaValue(campos, [
+        'consignatario',
+        'apellidosNombres',
+        'razonSocial',
+      ]);
+      if (nombreIdentificado) partes.push(`Consignatario/intervenido: ${subject}.`);
+      const mercancia = summarizeBienes(campos.bienes);
+      if (mercancia) {
+        partes.push(`Mercancía: ${mercancia}${campos.peso ? ` (${campos.peso} kg)` : ''}.`);
+      }
+      if (campos.procedencia || campos.manifiesto) {
+        partes.push(
+          `Procedencia: ${campos.procedencia ?? 'no identificada'}${campos.manifiesto ? ` (manifiesto ${campos.manifiesto})` : ''}.`,
+        );
+      }
+      if (campos.lugarCustodia) partes.push(`Custodia: ${campos.lugarCustodia}.`);
+      if (campos.fundamentoHecho) partes.push(`Fundamento de hecho: ${campos.fundamentoHecho}.`);
+
+      const alertas = buildActaAlerts(tipoDocumento, campos, now);
+      const plazo = alertas.find((alerta) => alerta.includes('días hábiles'));
+      if (plazo) partes.push(plazo);
+      const historico = alertas.find((alerta) => alerta.includes('Han pasado'));
+      if (historico) partes.push(historico);
+      partes.push(
+        'Corresponde confirmar el estado del caso (levantamiento, devolución o comiso) y su valorización.',
+      );
+      return partes.join(' ');
+    }
     case 'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO':
     case 'RESOLUCION_FRACCIONAMIENTO':
     case 'RESOLUCION_APLAZAMIENTO':
     case 'SOLICITUD_APLAZAMIENTO':
       return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}: beneficio ${campos.modalidad ?? 'tributario'} por ${campos.totalDeuda ?? 'monto no identificado'}${campos.numeroCuotas ? ` en ${campos.numeroCuotas} cuotas` : ''}. Próximo vencimiento: ${campos.fechaVencimiento ?? 'no identificado'}. Estado: ${campos.condicion ?? 'pendiente de verificación'}. Validar firma, aceptación y cumplimiento del cronograma.`;
     case 'ORDEN_PAGO_OP':
-      return `Orden de Pago de ${subject}: deuda exigible ${campos.totalDeuda ?? 'no identificada'}${campos.periodo ? ` del período ${campos.periodo}` : ''}. Vencimiento: ${campos.fechaVencimiento ?? 'no identificado'}. Exigir la cancelación total y verificar si corresponde iniciar cobranza coactiva.`;
+      return `Orden de Pago de ${subject}: deuda exigible ${campos.totalDeuda ?? 'no identificada'}${campos.periodo ? ` del período ${campos.periodo}` : ''}. Vencimiento: ${campos.fechaVencimiento ?? 'no identificado'}. ${buildCollectableAlerts(campos, now).join(' ')} Exigir la cancelación total y verificar si corresponde iniciar cobranza coactiva.`;
+    case 'RESOLUCION_DETERMINACION_RD':
+    case 'RESOLUCION_MULTA_RM':
+      return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}${campos.periodo ? ` del período ${campos.periodo}` : ''} por ${campos.totalDeuda ?? 'monto no identificado'}. ${buildCollectableAlerts(campos, now).join(' ')} Confirmar la notificación y si existe reclamo o impugnación.`;
     case 'DECLARACION_JURADA_MENSUAL':
     case 'DECLARACION_JURADA_ANUAL':
       return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}${campos.periodo ? ` del período ${campos.periodo}` : ''}: ingresos ${campos.ingresos ?? 'no identificados'}, renta neta ${campos.rentaNeta ?? 'no identificada'} y saldo a pagar ${campos.saldoAPagar ?? 'no identificado'}. Validar firmas, consistencia y pago del saldo.`;
     case 'SOLICITUD_INSCRIPCION_RUC':
     case 'ACTUALIZACION_RUC':
-      return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}: actividad ${campos.actividadPrincipal ?? campos.actividadEconomica ?? 'no identificada'}, régimen ${campos.regimenTributario ?? 'no identificado'} y domicilio ${campos.domicilioFiscal ?? 'no identificado'}. Validar los datos antes de registrar o actualizar el RUC.`;
+      return `${tipoDocumento.replace(/_/g, ' ')} de ${subject}: actividad ${campos.actividadPrincipal ?? campos.actividadEconomica ?? 'no identificada'}, régimen ${campos.regimenTributario ?? 'no identificado'} y domicilio ${campos.domicilioFiscal ?? 'no identificado'}. ${buildRegistryAlerts(campos, now).join(' ')}`;
     default:
       return `Documento ${tipoDocumento.replace(/_/g, ' ')} de ${subject}. Revisar los datos extraídos, validar su formalidad y ejecutar la acción correspondiente al área destinataria.`;
   }
@@ -660,7 +1385,6 @@ function normalizeClassificationResult(
     resumenEjecutivo,
   };
 
-  const report = createExecutiveReport(tipoDocumento, campos, resumenEjecutivo);
   return {
     tipoDocumento,
     area: getAreaByDocumentType(tipoDocumento),
@@ -672,7 +1396,7 @@ function normalizeClassificationResult(
   };
 }
 
-export function classifyByKeywords(text: string): ClassificationResult {
+export function classifyByKeywords(text: string, now: Date = new Date()): ClassificationResult {
   const lowerText = text.toLocaleLowerCase('es');
   const rules: Array<{ tipo: SunatDocumentType; keywords: string[] }> = [
     {
@@ -735,8 +1459,8 @@ export function classifyByKeywords(text: string): ClassificationResult {
     ...(isActaType(tipoDocumento) ? compactFields(extractActaFields(text)) : {}),
   };
   const campos = isActaType(tipoDocumento) ? coerceActaNumbers(camposBase) : camposBase;
-  const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos);
-  const report = createExecutiveReport(tipoDocumento, campos, resumenEjecutivo);
+  const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos, now);
+  const report = createExecutiveReport(tipoDocumento, campos, resumenEjecutivo, now);
   return {
     tipoDocumento,
     area: getAreaByDocumentType(tipoDocumento),

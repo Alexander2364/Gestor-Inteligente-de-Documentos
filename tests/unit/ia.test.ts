@@ -160,3 +160,51 @@ describe('classifyByKeywords (fallback local cuando Ollama no responde)', () => 
     expect(result.campos.tipoAccion).toBe('INMOVILIZACION');
   });
 });
+
+describe('extractActaFields con ruido de OCR', () => {
+  it('descarta el resto "2 Z" y toma el nombre de la línea siguiente', () => {
+    const fields = extractActaFields(`
+			APELLIDOS Y NOMBRES
+			2 Z
+			ALDAZ PESANTES, JHONNY
+		`);
+
+    expect(fields.apellidosNombres).toBe('ALDAZ PESANTES, JHONNY');
+  });
+
+  it('no toma el título de la sección siguiente como domicilio ni como matrícula', () => {
+    const fields = extractActaFields(`
+			DOMICILIO
+			RUC
+			AV. LOS ALISOS 1234, LIMA
+			MATRICULA
+			TIPO DE VEHICULO
+			ABC-123
+		`);
+
+    expect(fields.domicilio).toBe('AV. LOS ALISOS 1234, LIMA');
+    expect(fields.matricula).toBe('ABC-123');
+  });
+
+  it('extrae el consignatario cuando figura en el acta', () => {
+    const fields = extractActaFields(`
+			CONSIGNATARIO: SANTA CRUZ CABRERA, JUDITH KATHERINE
+			RUC: 20123456789
+		`);
+
+    expect(fields.consignatario).toBe('SANTA CRUZ CABRERA, JUDITH KATHERINE');
+    expect(fields.ruc).toBe('20123456789');
+  });
+
+  it('prefiere el valor de la misma línea cuando es un dato válido', () => {
+    const fields = extractActaFields(`
+			APELLIDOS Y NOMBRES: PEREZ GOMEZ, JUAN
+			DOMICILIO: JR. AMAZONAS 456, LIMA
+			MATRICULA: XYZ-987
+		`);
+
+    expect(fields.apellidosNombres).toBe('PEREZ GOMEZ, JUAN');
+    expect(fields.domicilio).toBe('JR. AMAZONAS 456, LIMA');
+    expect(fields.matricula).toBe('XYZ-987');
+  });
+});
