@@ -13,6 +13,7 @@ vi.mock('../../src/services/documentFlow.service', () => ({
 }));
 
 import { processMobileDocument } from '../../src/services/document-processing';
+import { buildReportFromFields } from '../../src/services/documentReadModel';
 
 const inserted: Record<string, any[]> = {};
 
@@ -117,6 +118,34 @@ describe('processMobileDocument', () => {
     });
   });
 
+  it('devuelve el informe ejecutivo para que la pantalla no caiga al volcado de campos', async () => {
+    const result = await processMobileDocument({
+      fileName: 'captura.jpg',
+      mimeType: 'image/jpeg',
+      fileBase64: Buffer.from('imagen').toString('base64'),
+    });
+
+    // El mismo motor que usa el historial: escaneo e historial deben coincidir.
+    const esperado = buildReportFromFields(
+      'ACTA_INMOVILIZACION',
+      result.campos as Record<string, any>,
+    );
+
+    expect(result.informeEjecutivo).toMatchObject({
+      tipoInforme: 'ACTA_INMOVILIZACION',
+      identificacion: esperado.informeEjecutivo.identificacion,
+      datosClave: esperado.informeEjecutivo.datosClave,
+      urgencia: esperado.informeEjecutivo.urgencia,
+    });
+    expect(result.informeEjecutivo.accionesRequeridas).toEqual(
+      esperado.informeEjecutivo.accionesRequeridas,
+    );
+    // El resumen que se muestra es el del informe (no el del modelo, que en la
+    // prueba anterior se guarda tal cual en `document_analysis.ai_summary`).
+    expect(result.resumenEjecutivo).toContain('235-0105-2020');
+    expect(result.resumenEjecutivo).not.toBe('Acta detectada');
+  });
+
   it('continúa y reporta warnings cuando la validación falla, pero igual deriva', async () => {
     scanMobileDocumentMock.mockResolvedValue({
       tipoDocumento: 'ACTA_INMOVILIZACION',
@@ -134,5 +163,9 @@ describe('processMobileDocument', () => {
     expect(result.warnings.length).toBeGreaterThan(0);
     expect(inserted.document_derivations).toHaveLength(1);
     expect(inserted.document_derivations[0].status).toBe('PENDING');
+    // Sin datos legibles el informe sigue saliendo: avisa de lo que falta en vez
+    // de dejar la pantalla sin informe.
+    expect(result.informeEjecutivo).toMatchObject({ tipoInforme: 'ACTA_INMOVILIZACION' });
+    expect(result.informeEjecutivo.alertas ?? []).not.toHaveLength(0);
   });
 });
