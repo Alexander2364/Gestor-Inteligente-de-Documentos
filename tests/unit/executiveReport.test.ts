@@ -284,3 +284,73 @@ describe('urgencia del informe ejecutivo', () => {
     expect(normalizeUrgencia(7)).toBeUndefined();
   });
 });
+
+describe('campos clave de los tipos que no tenían lista propia', () => {
+  it('un requerimiento muestra su número de documento y su deuda', () => {
+    const informe = createExecutiveReport(
+      'REQUERIMIENTO_FISCALIZACION',
+      {
+        contribuyente: 'ANDINA S.A.C.',
+        ruc: '20123456789',
+        periodo: '2026-08',
+        totalDeuda: 'S/ 1,500.00',
+        numeroDocumento: '045-2026-001234',
+        fecha: '10/09/2026',
+        fechaVencimiento: '25/09/2026',
+      },
+      'resumen',
+      HOY,
+    );
+
+    expect(informe.datosClave).toMatchObject({
+      'N° de documento': '045-2026-001234',
+      'Deuda total': 'S/ 1,500.00',
+      Vencimiento: '25/09/2026',
+    });
+  });
+
+  it('un aplazamiento y fraccionamiento muestra modalidad y cuotas', () => {
+    const informe = createExecutiveReport(
+      'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO',
+      {
+        contribuyente: 'LOPEZ E.I.R.L.',
+        ruc: '20987654321',
+        modalidad: 'fraccionamiento',
+        totalDeuda: 'S/ 2,247.19',
+        intereses: 'S/ 47.19',
+        numeroCuotas: '3',
+        fechaVencimiento: '10/11/2026',
+      },
+      'resumen',
+      HOY,
+    );
+
+    expect(informe.datosClave).toMatchObject({
+      Modalidad: 'fraccionamiento',
+      'N° de cuotas': '3',
+      'Deuda total': 'S/ 2,247.19',
+    });
+  });
+
+  it('una notificación electrónica muestra número y plazo', () => {
+    const informe = createExecutiveReport(
+      'NOTIFICACION_ELECTRONICA',
+      {
+        contribuyente: 'ANDINA S.A.C.',
+        ruc: '20123456789',
+        numeroDocumento: '2026-004512',
+        numeroDeclaracion: '235-2026-18-144178',
+        fecha: '12/10/2026',
+        fechaVencimiento: '20/10/2026',
+      },
+      'resumen',
+      HOY,
+    );
+
+    expect(informe.datosClave).toMatchObject({
+      'N° de documento': '2026-004512',
+      'N° de declaración': '235-2026-18-144178',
+      Vencimiento: '20/10/2026',
+    });
+  });
+});

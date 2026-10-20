@@ -72,6 +72,7 @@ const CAMPOS_PROPERTIES = {
   apellidosNombres: stringField,
   tipoDocumentoIdentidad: stringField,
   numeroDocumentoIdentidad: stringField,
+  numeroDocumento: stringField,
   domicilio: stringField,
   razonSocial: stringField,
   empresaTransportista: stringField,
