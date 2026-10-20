@@ -13,6 +13,7 @@ vi.mock('../../src/services/documentFlow.service', () => ({
 }));
 
 import { processMobileDocument, buildMetadataRows } from '../../src/services/document-processing';
+import { buildReportFromFields } from '../../src/services/documentReadModel';
 
 const inserted: Record<string, any[]> = {};
 
