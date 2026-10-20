@@ -119,6 +119,22 @@ describe('informe ejecutivo de actas de aduana', () => {
     expect(informe.datosClave['Fundamento de hecho'].length).toBeLessThanOrEqual(241);
     expect(resumen).not.toContain('Fundamento de hecho');
   });
+
+  it('cierra con acción y riesgo, sin repetir la acción del cierre', () => {
+    const resumen = buildExecutiveSummary('ACTA_INMOVILIZACION', campos, HOY);
+
+    expect(resumen).toContain('Los plazos legales');
+    expect(resumen).toContain('Acción:');
+    expect(resumen).toContain('Riesgo:');
+    // La acción de cierre aparecía dos veces seguidas en el texto anterior.
+    expect(resumen.match(/confirmar el estado final/g) ?? []).toHaveLength(1);
+  });
+
+  it('cuenta el plazo vencido en años, no en días', () => {
+    const informe = createExecutiveReport('ACTA_INMOVILIZACION', campos, HOY);
+
+    expect((informe.alertas ?? []).join(' ')).toContain('venció hace 6 año(s) (18/03/2020)');
+  });
 });
 
 describe('informe ejecutivo de recaudación', () => {
@@ -143,6 +159,23 @@ describe('informe ejecutivo de recaudación', () => {
     });
     expect((informe.alertas ?? []).join(' ')).toContain('venció hace 31 día(s) (18/09/2026)');
     expect(informe.estado).toBe('Pendiente de pago');
+  });
+
+  it('explica la acción y el riesgo de una orden de pago vencida', () => {
+    const resumen = buildExecutiveSummary(
+      'ORDEN_PAGO_OP',
+      {
+        contribuyente: 'INVERSIONES DEL SUR S.A.C.',
+        ruc: '20123456789',
+        totalDeuda: 'S/ 244.26',
+        fechaVencimiento: '18/09/2026',
+      },
+      HOY,
+    );
+
+    expect(resumen).toContain('(ya vencido)');
+    expect(resumen).toContain('Acción:');
+    expect(resumen).toContain('Riesgo:');
   });
 
   it('alerta del primer vencimiento de un fraccionamiento', () => {
