@@ -31,6 +31,11 @@ export interface MobileDocumentJobResult {
   confianza: number;
   campos: Record<string, unknown>;
   resumenEjecutivo: string;
+  /**
+   * Informe ejecutivo compuesto al clasificar (se reconstruye en cada lectura,
+   * no se guarda). La pantalla que sigue al escaneo lo muestra tal cual.
+   */
+  informeEjecutivo: Record<string, unknown>;
   templateSugerido: string;
   pdfUrl: string;
   documentId: string;

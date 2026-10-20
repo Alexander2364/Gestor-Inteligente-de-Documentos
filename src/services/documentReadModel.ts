@@ -11,6 +11,7 @@ import {
   createExecutiveReport,
   isDocumentType,
   type InformeEjecutivo,
+  type SunatDocumentType,
 } from './ia';
 
 export interface StoredReport {
@@ -55,6 +56,23 @@ function firstRow(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
+ * Compone el resumen y el informe ejecutivo a partir de campos ya clasificados.
+ * Es el mismo motor que usa el historial, así que el flujo de escaneo puede
+ * reutilizarlo sin escribir nada en la base de datos.
+ */
+export function buildReportFromFields(
+  tipoDocumento: SunatDocumentType,
+  campos: Record<string, any>,
+  now: Date = new Date(),
+): StoredReport {
+  const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos, now);
+  return {
+    informeEjecutivo: createExecutiveReport(tipoDocumento, campos, resumenEjecutivo, now),
+    resumenEjecutivo,
+  };
+}
+
+/**
  * Reconstruye el informe ejecutivo de un documento ya procesado.
  * Devuelve null si el documento no tiene una categoría válida (aún sin analizar).
  */
@@ -66,9 +84,5 @@ export function buildStoredReport(
   if (!isDocumentType(tipoDocumento)) return null;
 
   const campos = fieldsFromMetadata(doc.extracted_metadata) as Record<string, string>;
-  const resumenEjecutivo = buildExecutiveSummary(tipoDocumento, campos, now);
-  return {
-    informeEjecutivo: createExecutiveReport(tipoDocumento, campos, resumenEjecutivo, now),
-    resumenEjecutivo,
-  };
+  return buildReportFromFields(tipoDocumento, campos, now);
 }
