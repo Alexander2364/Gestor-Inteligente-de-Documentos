@@ -12,7 +12,8 @@ vi.mock('../../src/services/documentFlow.service', () => ({
   scanMobileDocument: scanMobileDocumentMock,
 }));
 
-import { processMobileDocument } from '../../src/services/document-processing';
+import { processMobileDocument, buildMetadataRows } from '../../src/services/document-processing';
+import { buildReportFromFields } from '../../src/services/documentReadModel';
 
 const inserted: Record<string, any[]> = {};
 
@@ -117,6 +118,34 @@ describe('processMobileDocument', () => {
     });
   });
 
+  it('devuelve el informe ejecutivo para que la pantalla no caiga al volcado de campos', async () => {
+    const result = await processMobileDocument({
+      fileName: 'captura.jpg',
+      mimeType: 'image/jpeg',
+      fileBase64: Buffer.from('imagen').toString('base64'),
+    });
+
+    // El mismo motor que usa el historial: escaneo e historial deben coincidir.
+    const esperado = buildReportFromFields(
+      'ACTA_INMOVILIZACION',
+      result.campos as Record<string, any>,
+    );
+
+    expect(result.informeEjecutivo).toMatchObject({
+      tipoInforme: 'ACTA_INMOVILIZACION',
+      identificacion: esperado.informeEjecutivo.identificacion,
+      datosClave: esperado.informeEjecutivo.datosClave,
+      urgencia: esperado.informeEjecutivo.urgencia,
+    });
+    expect(result.informeEjecutivo.accionesRequeridas).toEqual(
+      esperado.informeEjecutivo.accionesRequeridas,
+    );
+    // El resumen que se muestra es el del informe (no el del modelo, que en la
+    // prueba anterior se guarda tal cual en `document_analysis.ai_summary`).
+    expect(result.resumenEjecutivo).toContain('235-0105-2020');
+    expect(result.resumenEjecutivo).not.toBe('Acta detectada');
+  });
+
   it('continúa y reporta warnings cuando la validación falla, pero igual deriva', async () => {
     scanMobileDocumentMock.mockResolvedValue({
       tipoDocumento: 'ACTA_INMOVILIZACION',
@@ -134,5 +163,30 @@ describe('processMobileDocument', () => {
     expect(result.warnings.length).toBeGreaterThan(0);
     expect(inserted.document_derivations).toHaveLength(1);
     expect(inserted.document_derivations[0].status).toBe('PENDING');
+    // Sin datos legibles no se guardan filas vacías ni se pierde la derivación.
+    expect(inserted.extracted_metadata).toBeUndefined();
+  });
+});
+
+describe('buildMetadataRows', () => {
+  it('solo guarda los campos con valor y no inventa confianza por campo', () => {
+    const rows = buildMetadataRows('doc-1', {
+      numeroActa: '235-0105-2020',
+      periodo: '',
+      ingresos: '   ',
+      bienes: [],
+      detalle: {},
+      peso: '3.4920',
+      listado: [{ numero: '1' }],
+      anulados: null,
+    });
+
+    expect(rows).toEqual([
+      { document_id: 'doc-1', field_name: 'numeroActa', field_value: '235-0105-2020' },
+      { document_id: 'doc-1', field_name: 'peso', field_value: '3.4920' },
+      { document_id: 'doc-1', field_name: 'listado', field_value: '[{"numero":"1"}]' },
+    ]);
+    // La confianza por campo era un 100 % fijo; ahora solo queda la del documento.
+    expect(Object.keys(rows[0])).toEqual(['document_id', 'field_name', 'field_value']);
   });
 });

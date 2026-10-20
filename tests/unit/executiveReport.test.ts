@@ -119,6 +119,22 @@ describe('informe ejecutivo de actas de aduana', () => {
     expect(informe.datosClave['Fundamento de hecho'].length).toBeLessThanOrEqual(241);
     expect(resumen).not.toContain('Fundamento de hecho');
   });
+
+  it('cierra con acción y riesgo, sin repetir la acción del cierre', () => {
+    const resumen = buildExecutiveSummary('ACTA_INMOVILIZACION', campos, HOY);
+
+    expect(resumen).toContain('Los plazos legales');
+    expect(resumen).toContain('Acción:');
+    expect(resumen).toContain('Riesgo:');
+    // La acción de cierre aparecía dos veces seguidas en el texto anterior.
+    expect(resumen.match(/confirmar el estado final/g) ?? []).toHaveLength(1);
+  });
+
+  it('cuenta el plazo vencido en años, no en días', () => {
+    const informe = createExecutiveReport('ACTA_INMOVILIZACION', campos, HOY);
+
+    expect((informe.alertas ?? []).join(' ')).toContain('venció hace 6 año(s) (18/03/2020)');
+  });
 });
 
 describe('informe ejecutivo de recaudación', () => {
@@ -143,6 +159,23 @@ describe('informe ejecutivo de recaudación', () => {
     });
     expect((informe.alertas ?? []).join(' ')).toContain('venció hace 31 día(s) (18/09/2026)');
     expect(informe.estado).toBe('Pendiente de pago');
+  });
+
+  it('explica la acción y el riesgo de una orden de pago vencida', () => {
+    const resumen = buildExecutiveSummary(
+      'ORDEN_PAGO_OP',
+      {
+        contribuyente: 'INVERSIONES DEL SUR S.A.C.',
+        ruc: '20123456789',
+        totalDeuda: 'S/ 244.26',
+        fechaVencimiento: '18/09/2026',
+      },
+      HOY,
+    );
+
+    expect(resumen).toContain('(ya vencido)');
+    expect(resumen).toContain('Acción:');
+    expect(resumen).toContain('Riesgo:');
   });
 
   it('alerta del primer vencimiento de un fraccionamiento', () => {
@@ -282,5 +315,75 @@ describe('urgencia del informe ejecutivo', () => {
     expect(normalizeUrgencia('urgente')).toBeUndefined();
     expect(normalizeUrgencia(undefined)).toBeUndefined();
     expect(normalizeUrgencia(7)).toBeUndefined();
+  });
+});
+
+describe('campos clave de los tipos que no tenían lista propia', () => {
+  it('un requerimiento muestra su número de documento y su deuda', () => {
+    const informe = createExecutiveReport(
+      'REQUERIMIENTO_FISCALIZACION',
+      {
+        contribuyente: 'ANDINA S.A.C.',
+        ruc: '20123456789',
+        periodo: '2026-08',
+        totalDeuda: 'S/ 1,500.00',
+        numeroDocumento: '045-2026-001234',
+        fecha: '10/09/2026',
+        fechaVencimiento: '25/09/2026',
+      },
+      'resumen',
+      HOY,
+    );
+
+    expect(informe.datosClave).toMatchObject({
+      'N° de documento': '045-2026-001234',
+      'Deuda total': 'S/ 1,500.00',
+      Vencimiento: '25/09/2026',
+    });
+  });
+
+  it('un aplazamiento y fraccionamiento muestra modalidad y cuotas', () => {
+    const informe = createExecutiveReport(
+      'RESOLUCION_APLAZAMIENTO_FRACCIONAMIENTO',
+      {
+        contribuyente: 'LOPEZ E.I.R.L.',
+        ruc: '20987654321',
+        modalidad: 'fraccionamiento',
+        totalDeuda: 'S/ 2,247.19',
+        intereses: 'S/ 47.19',
+        numeroCuotas: '3',
+        fechaVencimiento: '10/11/2026',
+      },
+      'resumen',
+      HOY,
+    );
+
+    expect(informe.datosClave).toMatchObject({
+      Modalidad: 'fraccionamiento',
+      'N° de cuotas': '3',
+      'Deuda total': 'S/ 2,247.19',
+    });
+  });
+
+  it('una notificación electrónica muestra número y plazo', () => {
+    const informe = createExecutiveReport(
+      'NOTIFICACION_ELECTRONICA',
+      {
+        contribuyente: 'ANDINA S.A.C.',
+        ruc: '20123456789',
+        numeroDocumento: '2026-004512',
+        numeroDeclaracion: '235-2026-18-144178',
+        fecha: '12/10/2026',
+        fechaVencimiento: '20/10/2026',
+      },
+      'resumen',
+      HOY,
+    );
+
+    expect(informe.datosClave).toMatchObject({
+      'N° de documento': '2026-004512',
+      'N° de declaración': '235-2026-18-144178',
+      Vencimiento: '20/10/2026',
+    });
   });
 });
