@@ -130,3 +130,35 @@ cada Pull Request hacia esas ramas:
 > **No renombrar los jobs `install`, `typecheck`, `lint`, `test` y `build`**:
 > están fijados como *required status checks* en los rulesets `Proteccion-main`
 > y `proteccion-develop`. Si desaparecen, los Pull Request quedan bloqueados.
+
+## Ejecución standalone (sin el repositorio raíz)
+
+Este repositorio es autónomo. El `Dockerfile` y el `docker-compose.yml` viven
+aquí; no necesitan el compose del repositorio padre para arrancar.
+
+```bash
+cp .env.example .env   # completa GEMINI_API_KEY y SUPABASE_SECRET_KEY
+docker compose up --build
+```
+
+Esto levanta `api` (http://localhost:3000), `worker` y `redis`. El API expone
+`GET /health`; el worker procesa la cola BullMQ.
+
+Para usar solo la imagen:
+
+```bash
+docker build -t gestor-backend .
+docker run --env-file .env -e REDIS_URL=redis://host:6379 -e QUEUE_ENABLED=true \
+  -p 3000:3000 gestor-backend
+# worker (misma imagen, otro comando)
+docker run --env-file .env -e REDIS_URL=redis://host:6379 -e QUEUE_ENABLED=true \
+  gestor-backend node dist/workers/document.worker.js
+```
+
+### Producción en Railway
+
+- `backend-api`: Dockerfile de la raíz, target port `3000`, healthcheck `/health`.
+- `backend-worker`: mismo Dockerfile, start command
+  `node dist/workers/document.worker.js`, sin dominio público.
+- Redis: referencia `REDIS_URL=${{Redis.REDIS_URL}}` y `QUEUE_ENABLED=true`.
+- El `.env.example` documenta todas las variables que lee el código.
