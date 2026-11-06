@@ -1,21 +1,21 @@
-// Variables requeridas solo si Ollama es el proveedor principal de IA.
-const OLLAMA_REQUIRED_VARS = ['OLLAMA_HOST', 'OLLAMA_MODEL'] as const;
+// Variables de entorno para la aplicación.
+//
+// El único proveedor de IA remoto es Gemini (Google AI Studio). El clasificador
+// local por palabras clave (`classifyByKeywords`) es siempre el último recurso,
+// así que la app nunca se queda sin clasificar y NUNCA requiere Ollama.
 
-// Variables opcionales (tienen defaults en el código)
+const GEMINI_REQUIRED_VARS = ['GEMINI_API_KEY'] as const;
+
+// Variables optionales (tienen defaults en el código).
 const OPTIONAL_VARS = [
   'PORT',
   'FRONTEND_URL',
-  'IA_PROVIDER',
-  'GEMINI_API_KEY',
   'GOOGLE_API_KEY',
   'GEMINI_MODEL',
   'GEMINI_TIMEOUT_MS',
   'GEMINI_API_BASE',
   'GEMINI_THINKING_LEVEL',
-  'OLLAMA_FALLBACK',
-  'OLLAMA_TIMEOUT_MS',
   'IA_MOBILE_MAX_TOKENS',
-  'OLLAMA_MOBILE_MAX_PREDICT',
   'SMTP_HOST',
   'SMTP_PORT',
   'SMTP_USER',
@@ -25,29 +25,18 @@ const OPTIONAL_VARS = [
   'QUEUE_ENABLED',
   'QUEUE_ATTEMPTS',
   'QUEUE_BACKOFF_MS',
-  'OLLAMA_CONCURRENCY',
+  'REQUEST_TIMEOUT_MS',
 ] as const;
 
-type RequiredVar = (typeof OLLAMA_REQUIRED_VARS)[number];
+type RequiredVar = (typeof GEMINI_REQUIRED_VARS)[number];
 type OptionalVar = (typeof OPTIONAL_VARS)[number];
 
 export function validateEnv(): void {
-  const provider = (process.env.IA_PROVIDER ?? 'auto').trim().toLowerCase();
   const geminiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-
   const missing: string[] = [];
 
-  // Ollama solo es obligatorio cuando va a ser el proveedor principal.
-  const ollamaIsPrimary = provider === 'ollama' || (provider === 'auto' && !geminiKey);
-  if (ollamaIsPrimary) {
-    for (const varName of OLLAMA_REQUIRED_VARS) {
-      if (!process.env[varName]) {
-        missing.push(varName);
-      }
-    }
-  }
-  // Si se fuerza Gemini, la clave es imprescindible.
-  if (provider === 'gemini' && !geminiKey) {
+  // Gemini es obligatorio como proveedor principal de IA.
+  if (!geminiKey) {
     missing.push('GEMINI_API_KEY');
   }
 
@@ -61,13 +50,8 @@ export function validateEnv(): void {
   // Log de config (sin secrets)
   console.log('Configuración cargada:');
   console.log(` PORT: ${process.env.PORT ?? '3000 (default)'}`);
-  console.log(
-    ` IA_PROVIDER: ${provider}${geminiKey ? ' (Gemini configurado)' : ' (sin Gemini, usa Ollama)'}`,
-  );
   console.log(` GEMINI_MODEL: ${process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite (default)'}`);
-  console.log(` OLLAMA_HOST: ${process.env.OLLAMA_HOST ?? 'no configurado'}`);
-  console.log(` OLLAMA_MODEL: ${process.env.OLLAMA_MODEL ?? 'no configurado'}`);
-  console.log(` OLLAMA_TIMEOUT_MS: ${process.env.OLLAMA_TIMEOUT_MS ?? '180000 (default)'}`);
+  console.log(` GEMINI_TIMEOUT_MS: ${process.env.GEMINI_TIMEOUT_MS ?? '45000 (default)'}`);
   console.log(` FRONTEND_URL: ${process.env.FRONTEND_URL ?? 'no configurado'}`);
   console.log(` QUEUE_ENABLED: ${process.env.QUEUE_ENABLED ?? 'false'}`);
 }

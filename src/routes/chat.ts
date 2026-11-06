@@ -7,9 +7,6 @@ import {
   GEMINI_API_KEY,
   GEMINI_MODEL,
   GEMINI_TIMEOUT_MS,
-  OLLAMA_HOST,
-  OLLAMA_MODEL,
-  OLLAMA_TIMEOUT_MS,
   geminiConfigured,
 } from '../config/ai';
 
@@ -309,44 +306,6 @@ async function streamFromGemini(messages: unknown, onDelta: DeltaHandler): Promi
   );
 }
 
-/** Ollama `/api/chat` (NDJSON, un objeto JSON por línea). */
-async function streamFromOllama(messages: unknown, onDelta: DeltaHandler): Promise<void> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
-  let response: Awaited<ReturnType<typeof fetch>>;
-  try {
-    response = await fetch(`${OLLAMA_HOST}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: OLLAMA_MODEL, messages, stream: true }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    throw err instanceof Error && err.name === 'AbortError'
-      ? new Error(`Ollama timeout tras ${OLLAMA_TIMEOUT_MS}ms`)
-      : err;
-  } finally {
-    clearTimeout(timeout);
-  }
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    throw new Error(`Error de Ollama (${response.status}): ${errText || response.statusText}`);
-  }
-  await consumeStream(
-    response.body,
-    (line) => {
-      if (!line.trim()) return;
-      try {
-        const parsed = JSON.parse(line);
-        if (parsed.message?.content) onDelta(parsed.message.content);
-      } catch {
-        // Ignorar líneas no parseables
-      }
-    },
-    30_000,
-    controller.signal,
-  );
-}
 router.post('/stream', async (req: Request, res: Response) => {
   try {
     const { message, history } = req.body;
@@ -385,7 +344,7 @@ router.post('/stream', async (req: Request, res: Response) => {
       );
     }
 
-    // 3. Formatear el contexto para el LLM de Ollama
+    // 3. Formatear el contexto para el LLM (Gemini)
     let contextText = '';
     if (relevantDocs.length > 0) {
       contextText +=
@@ -414,7 +373,7 @@ router.post('/stream', async (req: Request, res: Response) => {
       contextText = 'Actualmente no hay documentos registrados en el sistema.';
     }
 
-    // 4. Prompt del sistema para Llama 3.1
+    // 4. Prompt del sistema para el asistente (Gemini)
     const systemPrompt = `Eres el Asistente Inteligente del Gestor Documental Tributario SUNAT.
 Tu función es ayudar a los usuarios respondiendo preguntas sobre los documentos almacenados en la plataforma y resolver dudas tributarias y de gestión de documentos.
 
@@ -427,7 +386,7 @@ INSTRUCCIONES CLAVE:
 4. Si el usuario pregunta sobre trámites SUNAT (cómo inscribirse en RUC, plazos de apelación, requerimientos), respóndele con información tributaria acertada.
 5. Sé conciso pero completo en tus explicaciones. Evita respuestas vacías o evasivas.`;
 
-    // Historial limpio para Ollama
+    // Historial limpio para Gemini
     const sanitizedHistory = (history || []).filter((h: any) => h && h.role && h.content).slice(-6); // Mantener los últimos 6 turnos para no sobrecargar el contexto
 
     const messages = [
@@ -436,10 +395,20 @@ INSTRUCCIONES CLAVE:
       { role: 'user', content: message },
     ];
 
-    const usingGemini = geminiConfigured();
-    console.log(
-      `[Chat Stream] Enviando prompt a ${usingGemini ? `Gemini (${GEMINI_MODEL})` : `Ollama (${OLLAMA_MODEL}) en ${OLLAMA_HOST}`}...`,
-    );
+    if (!geminiConfigured()) {
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'error',
+          error:
+            'Gemini no está configurado (GEMINI_API_KEY). Configura la variable de entorno e intenta de nuevo.',
+        })}\n\n`,
+      );
+      res.write('data: {"type": "done"}\n\n');
+      res.end();
+      return;
+    }
+
+    console.log(`[Chat Stream] Enviando prompt a Gemini (${GEMINI_MODEL})...`);
 
     let emitted = false;
     const onDelta: DeltaHandler = (content) => {
@@ -447,20 +416,17 @@ INSTRUCCIONES CLAVE:
       res.write(`data: ${JSON.stringify({ type: 'content', content })}\n\n`);
     };
 
-    if (usingGemini) {
-      try {
-        await streamFromGemini(messages, onDelta);
-      } catch (error) {
-        // Solo se puede reintentar con Ollama si Gemini no alcanzó a emitir texto.
-        if (emitted) throw error;
-        console.warn(
-          '[Chat Stream] Gemini falló; se usa Ollama como respaldo:',
-          error instanceof Error ? error.message : error,
-        );
-        await streamFromOllama(messages, onDelta);
-      }
-    } else {
-      await streamFromOllama(messages, onDelta);
+    try {
+      await streamFromGemini(messages, onDelta);
+    } catch (error) {
+      if (emitted) throw error;
+      console.warn('[Chat Stream] Gemini falló:', error instanceof Error ? error.message : error);
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'error',
+          error: 'No se pudo generar la respuesta con Gemini.',
+        })}\n\n`,
+      );
     }
 
     res.write('data: {"type": "done"}\n\n');

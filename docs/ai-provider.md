@@ -1,32 +1,29 @@
-# Proveedor de IA (Gemini + Ollama)
+# Proveedor de IA (Gemini)
 
-La clasificación y extracción de documentos usa una **cadena de proveedores**; el primero que
-responda gana y, si todos fallan, se aplica el clasificador local por palabras clave
-(`classifyByKeywords`), de modo que el flujo nunca se queda sin resultado.
+La clasificación y extracción de documentos usa **Gemini (Google AI Studio)** como único
+proveedor remoto. Si Gemini no está configurado o falla, se aplica el clasificador local por
+palabras clave (`classifyByKeywords`), de modo que el flujo nunca se queda sin resultado.
 
 ```
-Gemini (Google AI Studio)  →  Ollama (local)  →  palabras clave (siempre disponible)
+Gemini (Google AI Studio)  →  palabras clave (siempre disponible)
 ```
 
 Punto de entrada: `classifyDocument()` en `src/services/ia.ts`. Lo usan
 `src/services/document-processing.ts` (subidas) y `src/services/documentFlow.service.ts`
-(escaneo con cámara). El chat RAG (`src/routes/chat.ts`) usa Gemini con streaming y cae a
-Ollama si Gemini falla antes de emitir texto.
+(escaneo con cámara). El chat RAG (`src/routes/chat.ts`) usa Gemini con streaming.
 
 ## Configuración
 
 | Variable | Default | Descripción |
 |---|---|---|
-| `IA_PROVIDER` | `auto` | `gemini`, `ollama` o `auto` (auto: Gemini si hay clave, si no Ollama). |
 | `GEMINI_API_KEY` | — | Clave de Google AI Studio (o `GOOGLE_API_KEY`). |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Modelo a usar. |
 | `GEMINI_TIMEOUT_MS` | `45000` | Timeout por petición. |
 | `GEMINI_THINKING_LEVEL` | `minimal` | `minimal`\|`low`\|`medium`\|`high`. Menos nivel = menos tokens de salida. |
 | `GEMINI_API_BASE` | `https://generativelanguage.googleapis.com/v1beta` | Base de la API REST. |
-| `OLLAMA_FALLBACK` | `true` | Si `false`, un fallo de Gemini pasa directo al clasificador local. |
 | `IA_MOBILE_MAX_TOKENS` | `768` | Tope de tokens de salida del flujo de cámara. |
 
-Las llaves de la API viven en `src/config/ai.ts`; la cadena se resuelve con `providerChain()`.
+Las llaves de la API viven en `src/config/ai.ts`.
 
 ## Modelo recomendado (plan gratuito)
 
@@ -59,9 +56,8 @@ Con salida compacta de un acta realista (~145 tokens) el caso típico es
 > Google. Para documentos SUNAT sensibles hay que valorarlo; el plan de pago no entrena con el
 > contenido. Detalles de cuota (RPM/TPM/RPD) en *AI Studio → Rate limits*.
 
-## Cambiar de proveedor
+## Sin IA remota
 
-- Solo Gemini: `IA_PROVIDER=gemini` + `GEMINI_API_KEY`.
-- Solo Ollama (comportamiento anterior): `IA_PROVIDER=ollama`.
-- Sin IA remota: quita la clave y `IA_PROVIDER=ollama` con `OLLAMA_HOST` inalcanzable; el
-  clasificador local responde (menor precisión).
+Si no hay `GEMINI_API_KEY`, `classifyDocument()` cae directamente al clasificador local por
+palabras clave (menor precisión). La aplicación funciona en todo momento; la única diferencia
+es la calidad de la clasificación.

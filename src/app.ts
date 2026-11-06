@@ -48,7 +48,7 @@ export function createApp() {
 
   // Eleva el timeout del socket para endpoints streaming o de generación larga.
   // Sin esto, el timeout por defecto de Node (120s) corta conexiones SSE que
-  // pueden durar minutos (Ollama en CPU, OCR de imágenes).
+  // pueden durar minutos (Gemini en la nube, OCR de imágenes).
   app.use((req: Request, _res: Response, next: NextFunction) => {
     req.setTimeout(LONG_REQUEST_TIMEOUT_MS);
     next();
