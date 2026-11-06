@@ -115,17 +115,11 @@ públicas con `getPublicUrl`.
 ```dotenv
 PORT=3000
 FRONTEND_URL=http://localhost:5173
-# IA: Gemini (Google AI Studio) con respaldo en Ollama
-IA_PROVIDER=auto
+# IA: Gemini (Google AI Studio)
 GEMINI_API_KEY=tu_api_key_de_ai_studio
 GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_TIMEOUT_MS=45000
 GEMINI_THINKING_LEVEL=minimal
-OLLAMA_FALLBACK=true
-# Ollama (respaldo local)
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3.2:3b
-OLLAMA_TIMEOUT_MS=180000
 IA_MOBILE_MAX_TOKENS=768
 QUEUE_ENABLED=false
 REDIS_URL=redis://127.0.0.1:6379
@@ -134,14 +128,12 @@ SUPABASE_PUBLISHABLE_KEY=tu_publishable_key
 SUPABASE_SECRET_KEY=tu_service_role_key
 ```
 
-La clasificación usa una **cadena de proveedores**: Gemini → Ollama → clasificador local por
-palabras clave. `IA_PROVIDER` controla el orden (`gemini`, `ollama` o `auto`; en `auto` se usa
-Gemini si hay `GEMINI_API_KEY`, si no Ollama). `OLLAMA_FALLBACK=false` desactiva el respaldo a
-Ollama. Detalles en [`ai-provider.md`](./ai-provider.md).
+La clasificación usa **Gemini** como único proveedor remoto; si no hay `GEMINI_API_KEY` o
+falla, se aplica el clasificador local por palabras clave. Detalles en
+[`ai-provider.md`](./ai-provider.md).
 
-`OLLAMA_HOST` y `OLLAMA_MODEL` solo son obligatorias si Ollama es el proveedor principal
-(`IA_PROVIDER=ollama`, o `auto` sin clave de Gemini). `GEMINI_TIMEOUT_MS` acota la llamada a
-Gemini y `IA_MOBILE_MAX_TOKENS` la salida del flujo de cámara.
+`GEMINI_TIMEOUT_MS` acota la llamada a Gemini y `IA_MOBILE_MAX_TOKENS` la salida del flujo de
+cámara.
 
 ## Errores comunes
 
@@ -150,9 +142,8 @@ Gemini y `IA_MOBILE_MAX_TOKENS` la salida del flujo de cámara.
   usa el valor exacto devuelto por el escaneo (p. ej. `ACTA_INMOVILIZACION`).
 - **Puppeteer no inicia Chromium**: instala el navegador (`npx puppeteer browsers install chrome`)
   y las dependencias del sistema en el contenedor del backend.
-- **Ollama no responde**: verifica `OLLAMA_HOST`, que el modelo esté descargado y que el backend
-  pueda alcanzarlo desde Docker (`docker compose logs -f backend-api ollama`).
-- **Gemini falla (401/403)**: revisa `GEMINI_API_KEY`; si `IA_PROVIDER=gemini` la clave es
-  obligatoria. Un `429` indica cuota del plan gratuito agotada; sin clave/Gemini se usa Ollama.
-- **Clasificación con el fallback local**: aparece un `[IA] Proveedor ... falló` en los logs;
-  revisa la cuota de Gemini o la disponibilidad de Ollama. Ver [`ai-provider.md`](./ai-provider.md).
+- **Gemini falla (401/403)**: revisa `GEMINI_API_KEY`; un `429` indica cuota del plan gratuito
+  agotada. Si no hay clave, se usa el clasificador local.
+- **Clasificación con el fallback local**: aparece un `[IA] Gemini falló` o
+  `[IA] Gemini no configurado` en los logs; revisa la cuota de Gemini.
+  Ver [`ai-provider.md`](./ai-provider.md).

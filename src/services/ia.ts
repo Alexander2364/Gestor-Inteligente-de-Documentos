@@ -13,10 +13,7 @@ import {
   GEMINI_MODEL,
   GEMINI_THINKING_LEVEL,
   GEMINI_TIMEOUT_MS,
-  OLLAMA_HOST,
-  OLLAMA_MODEL,
-  OLLAMA_TIMEOUT_MS,
-  providerChain,
+  geminiConfigured,
 } from '../config/ai';
 import { getAreaByDocumentType } from '../domain/sunat/areas';
 
@@ -66,7 +63,7 @@ export interface ClassificationResult {
   resumenEjecutivo: string;
 }
 
-// La configuración de proveedores (Gemini/Ollama) vive en `src/config/ai.ts`.
+// La configuración del proveedor de IA (Gemini) vive en `src/config/ai.ts`.
 
 const VALID_TYPES: SunatDocumentType[] = [...CLASSIFIER_TYPE_NAMES] as SunatDocumentType[];
 
@@ -1661,7 +1658,7 @@ export function classifyByKeywords(text: string, now: Date = new Date()): Classi
   // formulario (evita clasificar el acta como REQUERIMIENTO_FISCALIZACION).
   const tipoDocumento = detectActaType(text) ?? detectActaForm(text) ?? keywordType;
   // Para las actas, además de la clasificación, extraemos los campos con las
-  // reglas locales. Sin esto, cuando Ollama falla/expira el resultado quedaba en
+  // reglas locales. Sin esto, cuando el proveedor falla/expira el resultado quedaba en
   // `{}` y la validación rechazaba el documento por falta de número de acta/fecha.
   const camposBase = {
     ...extractFields(text),
@@ -1746,12 +1743,9 @@ function postJson(
 export interface ClassifyOptions {
   /** Pide un esquema compacto (sin `informeEjecutivo`) para reducir la generación. */
   compact?: boolean;
-  /** Tope de tokens a generar (Ollama `num_predict` / Gemini `maxOutputTokens`). */
+  /** Tope de tokens a generar (Gemini `maxOutputTokens`). */
   maxPredict?: number;
 }
-
-/** Alias retrocompatible del nombre anterior. */
-export type ClassifyOllamaOptions = ClassifyOptions;
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 2048;
 
@@ -1801,7 +1795,8 @@ export function extractGeminiText(payload: GeminiPayload): string {
   return parts.map((part) => part.text ?? '').join('');
 }
 
-async function classifyWithGemini(
+/** Variante estricta: propaga el error para que el caller lo trate. */
+async function classifyWithGeminiStrict(
   text: string,
   options: ClassifyOptions,
 ): Promise<ClassificationResult> {
@@ -1835,73 +1830,24 @@ async function classifyWithGemini(
   }
 }
 
-/** Variante estricta: propaga el error para que la cadena pruebe el siguiente proveedor. */
-async function classifyWithOllamaStrict(
-  text: string,
-  options: ClassifyOptions,
-): Promise<ClassificationResult> {
-  const { compact = false, maxPredict } = options;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
-  try {
-    const { status, body } = await postJson(
-      `${OLLAMA_HOST}/api/generate`,
-      {},
-      {
-        model: OLLAMA_MODEL,
-        prompt: compact ? buildCompactClassifierPrompt(text) : buildClassifierPrompt(text),
-        stream: false,
-        format: 'json',
-        options: {
-          temperature: 0.1,
-          ...(maxPredict && maxPredict > 0 ? { num_predict: maxPredict } : {}),
-        },
-      },
-      OLLAMA_TIMEOUT_MS,
-      controller.signal,
-    );
-    if (status !== 200) throw new Error(`Ollama respondió HTTP ${status}`);
-    const payload = JSON.parse(body) as { response?: string };
-    if (!payload.response) throw new Error('Ollama devolvió una respuesta vacía');
-    return normalizeClassificationResult(parseJsonResponse(payload.response), text);
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-/** Clasifica solo con Ollama y cae al clasificador local si falla. */
-export async function classifyWithOllama(
-  text: string,
-  options: ClassifyOptions = {},
-): Promise<ClassificationResult> {
-  try {
-    return await classifyWithOllamaStrict(text, options);
-  } catch (error) {
-    console.warn(
-      '[IA] Ollama no disponible; se usa fallback local:',
-      error instanceof Error ? error.message : error,
-    );
-    return classifyByKeywords(text);
-  }
-}
-
 /**
- * Clasificación con la cadena de proveedores configurada (Gemini → Ollama →
- * palabras clave). Es el punto de entrada que deben usar los flujos de documentos.
+ * Clasifica un documento usando Gemini (Google AI Studio). Si Gemini no está
+ * configurado o falla, cae al clasificador local por palabras clave.
+ * Es el punto de entrada que deben usar los flujos de documentos.
  */
 export async function classifyDocument(
   text: string,
   options: ClassifyOptions = {},
 ): Promise<ClassificationResult> {
-  for (const provider of providerChain()) {
+  if (geminiConfigured()) {
     try {
-      return provider === 'gemini'
-        ? await classifyWithGemini(text, options)
-        : await classifyWithOllamaStrict(text, options);
+      return await classifyWithGeminiStrict(text, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[IA] Proveedor ${provider} falló; se intenta el siguiente: ${message}`);
+      console.warn(`[IA] Gemini falló; se usa fallback local: ${message}`);
     }
+  } else {
+    console.warn('[IA] Gemini no configurado; se usa clasificador local por palabras clave.');
   }
   return classifyByKeywords(text);
 }

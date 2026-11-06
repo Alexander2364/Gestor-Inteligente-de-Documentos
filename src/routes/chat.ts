@@ -1,17 +1,16 @@
 import { Router, Request, Response } from 'express';
 import { getSupabaseClient } from '../config/supabase';
+import { getStorageBucket } from '../config/storage';
 import { extractText, SupportedMimeType } from '../services/extractor';
 import {
   GEMINI_API_BASE,
   GEMINI_API_KEY,
   GEMINI_MODEL,
-  OLLAMA_HOST,
-  OLLAMA_MODEL,
+  GEMINI_TIMEOUT_MS,
   geminiConfigured,
 } from '../config/ai';
 
 const router = Router();
-const STORAGE_BUCKET = 'DocumentosIA';
 
 function normalize(str: string): string {
   return (str || '')
@@ -32,7 +31,7 @@ function resolveStorageUrl(
   }
   const ext = fileName.split('.').pop() || 'pdf';
   const storagePath = `${docId}.${ext}`;
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
+  const { data } = supabase.storage.from(getStorageBucket()).getPublicUrl(storagePath);
   return data.publicUrl;
 }
 
@@ -162,7 +161,7 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
         const ext = (topDoc.file_name.split('.').pop() || '').toLowerCase();
         const storagePath = `${topDoc.id}.${ext}`;
         const { data: fileBlob } = await supabase.storage
-          .from(STORAGE_BUCKET)
+          .from(getStorageBucket())
           .download(storagePath);
 
         if (fileBlob) {
@@ -196,77 +195,117 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
 
 type DeltaHandler = (chunk: string) => void;
 
-/** Lee un stream HTTP y entrega las líneas completas (maneja cortes entre chunks). */
+/**
+ * Lee un stream HTTP y entrega las líneas completas (maneja cortes entre chunks).
+ *
+ * Si no llegan datos durante `idleMs`, aborta el stream (el caller debe tratar
+ * el error como timeout). Esto evita que una conexión SSE cuelgue para siempre
+ * cuando el proveedor deja de enviar sin cerrar el stream.
+ */
 async function consumeStream(
   body: ReadableStream<Uint8Array> | null,
   onLine: (line: string) => void,
+  idleMs: number,
+  signal: AbortSignal,
 ): Promise<void> {
   const reader = body?.getReader();
   if (!reader) throw new Error('No se pudo abrir el stream de lectura del proveedor');
   const decoder = new TextDecoder();
   let buffer = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) onLine(line);
+
+  const readWithTimeout = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new Error('This operation was aborted'));
+        return;
+      }
+      const onAbort = (): void => {
+        if (timer) clearTimeout(timer);
+        reject(new Error('This operation was aborted'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        reject(new Error(`Stream inactivity timeout tras ${idleMs}ms`));
+      }, idleMs);
+      reader
+        .read()
+        .then((result) => {
+          if (timer) clearTimeout(timer);
+          signal.removeEventListener('abort', onAbort);
+          resolve(result);
+        })
+        .catch((err) => {
+          if (timer) clearTimeout(timer);
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        });
+    });
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await readWithTimeout();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) onLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) onLine(buffer);
+  } finally {
+    reader.releaseLock();
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) onLine(buffer);
 }
 
 /** Gemini vía endpoint OpenAI-compatible (SSE `data: {...}`). */
 async function streamFromGemini(messages: unknown, onDelta: DeltaHandler): Promise<void> {
-  const response = await fetch(`${GEMINI_API_BASE}/openai/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${GEMINI_API_KEY}`,
-    },
-    body: JSON.stringify({ model: GEMINI_MODEL, messages, stream: true }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  let response: Awaited<ReturnType<typeof fetch>>;
+  try {
+    response = await fetch(`${GEMINI_API_BASE}/openai/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
+      },
+      body: JSON.stringify({ model: GEMINI_MODEL, messages, stream: true }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw err instanceof Error && err.name === 'AbortError'
+      ? new Error(`Gemini timeout tras ${GEMINI_TIMEOUT_MS}ms`)
+      : err;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
     throw new Error(`Error de Gemini (${response.status}): ${errText || response.statusText}`);
   }
-  await consumeStream(response.body, (line) => {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('data:')) return;
-    const data = trimmed.slice(5).trim();
-    if (!data || data === '[DONE]') return;
-    try {
-      const parsed = JSON.parse(data);
-      const content = parsed.choices?.[0]?.delta?.content;
-      if (content) onDelta(content);
-    } catch {
-      // Ignorar fragmentos no parseables
-    }
-  });
+  await consumeStream(
+    response.body,
+    (line) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return;
+      const data = trimmed.slice(5).trim();
+      if (!data || data === '[DONE]') return;
+      try {
+        const parsed = JSON.parse(data);
+        const content = parsed.choices?.[0]?.delta?.content;
+        if (content) onDelta(content);
+      } catch {
+        // Ignorar fragmentos no parseables
+      }
+    },
+    30_000,
+    controller.signal,
+  );
 }
 
-/** Ollama `/api/chat` (NDJSON, un objeto JSON por línea). */
-async function streamFromOllama(messages: unknown, onDelta: DeltaHandler): Promise<void> {
-  const response = await fetch(`${OLLAMA_HOST}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: OLLAMA_MODEL, messages, stream: true }),
-  });
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    throw new Error(`Error de Ollama (${response.status}): ${errText || response.statusText}`);
-  }
-  await consumeStream(response.body, (line) => {
-    if (!line.trim()) return;
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed.message?.content) onDelta(parsed.message.content);
-    } catch {
-      // Ignorar líneas no parseables
-    }
-  });
-}
 router.post('/stream', async (req: Request, res: Response) => {
   try {
     const { message, history } = req.body;
@@ -305,7 +344,7 @@ router.post('/stream', async (req: Request, res: Response) => {
       );
     }
 
-    // 3. Formatear el contexto para el LLM de Ollama
+    // 3. Formatear el contexto para el LLM (Gemini)
     let contextText = '';
     if (relevantDocs.length > 0) {
       contextText +=
@@ -334,7 +373,7 @@ router.post('/stream', async (req: Request, res: Response) => {
       contextText = 'Actualmente no hay documentos registrados en el sistema.';
     }
 
-    // 4. Prompt del sistema para Llama 3.1
+    // 4. Prompt del sistema para el asistente (Gemini)
     const systemPrompt = `Eres el Asistente Inteligente del Gestor Documental Tributario SUNAT.
 Tu función es ayudar a los usuarios respondiendo preguntas sobre los documentos almacenados en la plataforma y resolver dudas tributarias y de gestión de documentos.
 
@@ -347,7 +386,7 @@ INSTRUCCIONES CLAVE:
 4. Si el usuario pregunta sobre trámites SUNAT (cómo inscribirse en RUC, plazos de apelación, requerimientos), respóndele con información tributaria acertada.
 5. Sé conciso pero completo en tus explicaciones. Evita respuestas vacías o evasivas.`;
 
-    // Historial limpio para Ollama
+    // Historial limpio para Gemini
     const sanitizedHistory = (history || []).filter((h: any) => h && h.role && h.content).slice(-6); // Mantener los últimos 6 turnos para no sobrecargar el contexto
 
     const messages = [
@@ -356,10 +395,20 @@ INSTRUCCIONES CLAVE:
       { role: 'user', content: message },
     ];
 
-    const usingGemini = geminiConfigured();
-    console.log(
-      `[Chat Stream] Enviando prompt a ${usingGemini ? `Gemini (${GEMINI_MODEL})` : `Ollama (${OLLAMA_MODEL}) en ${OLLAMA_HOST}`}...`,
-    );
+    if (!geminiConfigured()) {
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'error',
+          error:
+            'Gemini no está configurado (GEMINI_API_KEY). Configura la variable de entorno e intenta de nuevo.',
+        })}\n\n`,
+      );
+      res.write('data: {"type": "done"}\n\n');
+      res.end();
+      return;
+    }
+
+    console.log(`[Chat Stream] Enviando prompt a Gemini (${GEMINI_MODEL})...`);
 
     let emitted = false;
     const onDelta: DeltaHandler = (content) => {
@@ -367,20 +416,17 @@ INSTRUCCIONES CLAVE:
       res.write(`data: ${JSON.stringify({ type: 'content', content })}\n\n`);
     };
 
-    if (usingGemini) {
-      try {
-        await streamFromGemini(messages, onDelta);
-      } catch (error) {
-        // Solo se puede reintentar con Ollama si Gemini no alcanzó a emitir texto.
-        if (emitted) throw error;
-        console.warn(
-          '[Chat Stream] Gemini falló; se usa Ollama como respaldo:',
-          error instanceof Error ? error.message : error,
-        );
-        await streamFromOllama(messages, onDelta);
-      }
-    } else {
-      await streamFromOllama(messages, onDelta);
+    try {
+      await streamFromGemini(messages, onDelta);
+    } catch (error) {
+      if (emitted) throw error;
+      console.warn('[Chat Stream] Gemini falló:', error instanceof Error ? error.message : error);
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'error',
+          error: 'No se pudo generar la respuesta con Gemini.',
+        })}\n\n`,
+      );
     }
 
     res.write('data: {"type": "done"}\n\n');

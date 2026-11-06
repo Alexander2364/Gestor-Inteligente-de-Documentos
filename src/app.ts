@@ -6,6 +6,14 @@ import chatRouter from './routes/chat';
 import templatesRouter from './routes/templates.routes';
 import documentGenerationRouter from './routes/documents.routes';
 
+/**
+ * Express aplica un timeout de socket de 2 minutos por defecto
+ * (`server.setTimeout`). Para endpoints streaming (SSE) o síncronos que pueden
+ * tardar más (OCR + clasificación + generación de PDF), elevamos el timeout
+ * del request para que no corte operaciones legítimas.
+ */
+const LONG_REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS ?? 600_000);
+
 export function createApp() {
   const app = express();
 
@@ -37,6 +45,14 @@ export function createApp() {
   );
 
   app.use(express.json());
+
+  // Eleva el timeout del socket para endpoints streaming o de generación larga.
+  // Sin esto, el timeout por defecto de Node (120s) corta conexiones SSE que
+  // pueden durar minutos (Gemini en la nube, OCR de imágenes).
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    req.setTimeout(LONG_REQUEST_TIMEOUT_MS);
+    next();
+  });
 
   app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

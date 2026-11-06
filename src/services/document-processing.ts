@@ -2,6 +2,7 @@ import { extractText, SupportedMimeType } from './extractor';
 import { classifyDocument, isDocumentType } from './ia';
 import { DocumentJobData, DocumentJobResult, MobileDocumentJobResult } from '../domain/jobs';
 import { getSupabaseClient } from '../config/supabase';
+import { getStorageBucket } from '../config/storage';
 import type {
   Document,
   DocumentAnalysis,
@@ -12,8 +13,6 @@ import { getAreaByDocumentType, getDestinationEmailByDocumentType } from '../dom
 import { buildDocumentPdf, scanMobileDocument } from './documentFlow.service';
 import { buildReportFromFields } from './documentReadModel';
 import { validateDocumentData } from '../domain/templates/validators';
-
-const STORAGE_BUCKET = 'DocumentosIA';
 
 function getMimeTypeFromFileName(fileName: string): SupportedMimeType {
   const ext = fileName.split('.').pop()?.toLowerCase();
@@ -54,7 +53,7 @@ async function uploadToStorage(
     const storagePath = `${documentId}.${fileExt}`;
 
     const { error: uploadError } = await supabase.storage
-      .from(STORAGE_BUCKET)
+      .from(getStorageBucket())
       .upload(storagePath, buffer, {
         contentType: mimeType,
         upsert: false,
@@ -65,7 +64,7 @@ async function uploadToStorage(
       return null;
     }
 
-    const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
+    const { data: urlData } = supabase.storage.from(getStorageBucket()).getPublicUrl(storagePath);
 
     return urlData.publicUrl;
   } catch (error) {
@@ -147,7 +146,7 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
       throw new Error('No se pudo extraer texto suficiente del documento');
     }
 
-    // 3. Clasificar y analizar con el proveedor de IA configurado (Gemini/Ollama)
+    // 3. Clasificar y analizar con el proveedor de IA configurado (Gemini)
     const result = await classifyDocument(text);
 
     // 4. Actualizar estado a completed en documents
@@ -260,18 +259,22 @@ export async function processDocumentById(documentId: string): Promise<Record<st
 
     // Intentar descargar usando <id>.<ext>
     const storagePathWithId = `${doc.id}.${ext}`;
-    const { data: blob1 } = await supabase.storage.from(STORAGE_BUCKET).download(storagePathWithId);
+    const { data: blob1 } = await supabase.storage
+      .from(getStorageBucket())
+      .download(storagePathWithId);
     fileBlob = blob1;
 
     // Si no existe con <id>.<ext>, intentar con el nombre original del archivo (como lo sube n8n)
     if (!fileBlob) {
-      const { data: blob2 } = await supabase.storage.from(STORAGE_BUCKET).download(doc.file_name);
+      const { data: blob2 } = await supabase.storage
+        .from(getStorageBucket())
+        .download(doc.file_name);
       fileBlob = blob2;
     }
 
     if (!fileBlob) {
       throw new Error(
-        `El archivo no fue encontrado en el bucket "${STORAGE_BUCKET}" con path ${storagePathWithId} ni con ${doc.file_name}`,
+        `El archivo no fue encontrado en el bucket "${getStorageBucket()}" con path ${storagePathWithId} ni con ${doc.file_name}`,
       );
     }
 
@@ -284,13 +287,15 @@ export async function processDocumentById(documentId: string): Promise<Record<st
       throw new Error(`Texto insuficiente extraído de ${doc.file_name}`);
     }
 
-    // Clasificar con el proveedor de IA configurado (Gemini/Ollama)
+    // Clasificar con el proveedor de IA configurado (Gemini)
     const result = await classifyDocument(text);
 
     // Actualizar storage_url si faltaba
     let storageUrl = doc.storage_url;
     if (!storageUrl || !storageUrl.startsWith('http')) {
-      const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(doc.file_name);
+      const { data: urlData } = supabase.storage
+        .from(getStorageBucket())
+        .getPublicUrl(doc.file_name);
       storageUrl = urlData.publicUrl;
       await supabase.from('documents').update({ storage_url: storageUrl }).eq('id', doc.id);
     }

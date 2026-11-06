@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 import { mobileUpload, MOBILE_IMAGE_MIMES } from '../middleware/mobileUpload';
 import { validateDocumentData } from '../domain/templates/validators';
 import { DocumentFlowError, buildDocumentPdf } from '../services/documentFlow.service';
+import { enqueueMobileDocument } from '../queues/document.queue';
 import { processMobileDocument } from '../services/document-processing';
 
 const router = Router();
@@ -57,16 +58,35 @@ router.post(
       return res.status(415).json({ error: `Tipo de imagen no soportado: ${req.file.mimetype}` });
     }
 
+    const jobData = {
+      fileName: req.file.originalname || `captura-${Date.now()}.jpg`,
+      mimeType: req.file.mimetype,
+      fileBase64: req.file.buffer.toString('base64'),
+      source: 'mobile' as const,
+    };
+
+    // El OCR + clasificación con IA puede tardar varios minutos en hardware sin GPU.
+    // Si hay cola configurada, encolamos y devolvemos 202 (el cliente consulta
+    // /upload/status/:jobId). Si no, procesamos síncronamente (fallback).
+    if (process.env.QUEUE_ENABLED === 'true') {
+      try {
+        const job = await enqueueMobileDocument(jobData);
+        console.log('[Scan & Generate] Captura encolada. Job ID:', job.id);
+        return res.status(202).json({
+          jobId: job.id,
+          fileName: jobData.fileName,
+          status: 'pending',
+        });
+      } catch (err) {
+        console.error('[Scan & Generate] Error encolando:', err);
+        return res.status(500).json({ error: 'No se pudo encolar el análisis' });
+      }
+    }
+
     try {
       // Reutiliza el flujo de cámara: registra el documento de ENTRADA, crea el
       // análisis, los metadatos y la derivación PENDING, y genera el PDF (salida).
-      const result = await processMobileDocument({
-        fileName: req.file.originalname || `captura-${Date.now()}.jpg`,
-        mimeType: req.file.mimetype,
-        fileBase64: req.file.buffer.toString('base64'),
-        source: 'mobile',
-      });
-
+      const result = await processMobileDocument(jobData);
       return res.status(201).json(result);
     } catch (error) {
       return sendFlowError(res, error);
