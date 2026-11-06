@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getSupabaseClient } from '../config/supabase';
+import { getStorageBucket } from '../config/storage';
 import { extractText, SupportedMimeType } from '../services/extractor';
 import {
   GEMINI_API_BASE,
@@ -11,7 +12,6 @@ import {
 } from '../config/ai';
 
 const router = Router();
-const STORAGE_BUCKET = 'DocumentosIA';
 
 function normalize(str: string): string {
   return (str || '')
@@ -32,7 +32,7 @@ function resolveStorageUrl(
   }
   const ext = fileName.split('.').pop() || 'pdf';
   const storagePath = `${docId}.${ext}`;
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
+  const { data } = supabase.storage.from(getStorageBucket()).getPublicUrl(storagePath);
   return data.publicUrl;
 }
 
@@ -162,7 +162,7 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
         const ext = (topDoc.file_name.split('.').pop() || '').toLowerCase();
         const storagePath = `${topDoc.id}.${ext}`;
         const { data: fileBlob } = await supabase.storage
-          .from(STORAGE_BUCKET)
+          .from(getStorageBucket())
           .download(storagePath);
 
         if (fileBlob) {
