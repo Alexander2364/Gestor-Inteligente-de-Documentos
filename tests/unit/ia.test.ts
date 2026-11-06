@@ -85,7 +85,7 @@ describe('extractActaFields', () => {
   });
 });
 
-describe('classifyByKeywords (fallback local cuando Ollama no responde)', () => {
+describe('classifyByKeywords (fallback local cuando Gemini no está disponible)', () => {
   it('extrae los campos del acta con las reglas locales', () => {
     const result = classifyByKeywords(`
 			ACTA DE INMOVILIZACIÓN - INCAUTACIÓN

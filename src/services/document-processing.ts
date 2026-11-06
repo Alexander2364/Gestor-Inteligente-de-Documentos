@@ -146,7 +146,7 @@ export async function processDocument(jobData: ProcessDocumentData): Promise<Doc
       throw new Error('No se pudo extraer texto suficiente del documento');
     }
 
-    // 3. Clasificar y analizar con el proveedor de IA configurado (Gemini/Ollama)
+    // 3. Clasificar y analizar con el proveedor de IA configurado (Gemini)
     const result = await classifyDocument(text);
 
     // 4. Actualizar estado a completed en documents
@@ -287,7 +287,7 @@ export async function processDocumentById(documentId: string): Promise<Record<st
       throw new Error(`Texto insuficiente extraído de ${doc.file_name}`);
     }
 
-    // Clasificar con el proveedor de IA configurado (Gemini/Ollama)
+    // Clasificar con el proveedor de IA configurado (Gemini)
     const result = await classifyDocument(text);
 
     // Actualizar storage_url si faltaba
