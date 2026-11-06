@@ -1,6 +1,5 @@
 import { getSupabaseClient } from '../config/supabase';
-
-const STORAGE_BUCKET = 'DocumentosIA';
+import { getStorageBucket } from '../config/storage';
 
 export async function uploadFile(
   buffer: Buffer,
@@ -8,7 +7,8 @@ export async function uploadFile(
   contentType: string,
 ): Promise<string> {
   const supabase = getSupabaseClient();
-  const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(key, buffer, {
+  const bucket = getStorageBucket();
+  const { error } = await supabase.storage.from(bucket).upload(key, buffer, {
     contentType,
     upsert: true,
   });
@@ -17,7 +17,7 @@ export async function uploadFile(
     throw new Error(`No se pudo subir el archivo a Supabase Storage: ${error.message}`);
   }
 
-  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(key);
+  const { data } = supabase.storage.from(bucket).getPublicUrl(key);
 
   return data.publicUrl;
 }
