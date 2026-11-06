@@ -1,5 +1,8 @@
 import puppeteer from 'puppeteer';
 
+/** Tope de espera para que Puppeteer lance el navegador y renderice el HTML. */
+const PUPPETEER_TIMEOUT_MS = Number(process.env.PUPPETEER_TIMEOUT_MS ?? 60_000);
+
 export async function htmlToPdf(html: string): Promise<Buffer> {
   const browser = await puppeteer.launch({
     headless: true,
@@ -13,7 +16,7 @@ export async function htmlToPdf(html: string): Promise<Buffer> {
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'load' });
+    await page.setContent(html, { waitUntil: 'load', timeout: PUPPETEER_TIMEOUT_MS });
 
     const pdf = await page.pdf({
       format: 'A4',

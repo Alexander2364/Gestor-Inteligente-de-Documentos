@@ -5,8 +5,10 @@ import {
   GEMINI_API_BASE,
   GEMINI_API_KEY,
   GEMINI_MODEL,
+  GEMINI_TIMEOUT_MS,
   OLLAMA_HOST,
   OLLAMA_MODEL,
+  OLLAMA_TIMEOUT_MS,
   geminiConfigured,
 } from '../config/ai';
 
@@ -196,76 +198,154 @@ async function searchRelevantDocuments(query: string): Promise<EnrichedDoc[]> {
 
 type DeltaHandler = (chunk: string) => void;
 
-/** Lee un stream HTTP y entrega las líneas completas (maneja cortes entre chunks). */
+/**
+ * Lee un stream HTTP y entrega las líneas completas (maneja cortes entre chunks).
+ *
+ * Si no llegan datos durante `idleMs`, aborta el stream (el caller debe tratar
+ * el error como timeout). Esto evita que una conexión SSE cuelgue para siempre
+ * cuando el proveedor deja de enviar sin cerrar el stream.
+ */
 async function consumeStream(
   body: ReadableStream<Uint8Array> | null,
   onLine: (line: string) => void,
+  idleMs: number,
+  signal: AbortSignal,
 ): Promise<void> {
   const reader = body?.getReader();
   if (!reader) throw new Error('No se pudo abrir el stream de lectura del proveedor');
   const decoder = new TextDecoder();
   let buffer = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) onLine(line);
+
+  const readWithTimeout = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new Error('This operation was aborted'));
+        return;
+      }
+      const onAbort = (): void => {
+        if (timer) clearTimeout(timer);
+        reject(new Error('This operation was aborted'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        reject(new Error(`Stream inactivity timeout tras ${idleMs}ms`));
+      }, idleMs);
+      reader
+        .read()
+        .then((result) => {
+          if (timer) clearTimeout(timer);
+          signal.removeEventListener('abort', onAbort);
+          resolve(result);
+        })
+        .catch((err) => {
+          if (timer) clearTimeout(timer);
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        });
+    });
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await readWithTimeout();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) onLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) onLine(buffer);
+  } finally {
+    reader.releaseLock();
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) onLine(buffer);
 }
 
 /** Gemini vía endpoint OpenAI-compatible (SSE `data: {...}`). */
 async function streamFromGemini(messages: unknown, onDelta: DeltaHandler): Promise<void> {
-  const response = await fetch(`${GEMINI_API_BASE}/openai/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${GEMINI_API_KEY}`,
-    },
-    body: JSON.stringify({ model: GEMINI_MODEL, messages, stream: true }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  let response: Awaited<ReturnType<typeof fetch>>;
+  try {
+    response = await fetch(`${GEMINI_API_BASE}/openai/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
+      },
+      body: JSON.stringify({ model: GEMINI_MODEL, messages, stream: true }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw err instanceof Error && err.name === 'AbortError'
+      ? new Error(`Gemini timeout tras ${GEMINI_TIMEOUT_MS}ms`)
+      : err;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
     throw new Error(`Error de Gemini (${response.status}): ${errText || response.statusText}`);
   }
-  await consumeStream(response.body, (line) => {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('data:')) return;
-    const data = trimmed.slice(5).trim();
-    if (!data || data === '[DONE]') return;
-    try {
-      const parsed = JSON.parse(data);
-      const content = parsed.choices?.[0]?.delta?.content;
-      if (content) onDelta(content);
-    } catch {
-      // Ignorar fragmentos no parseables
-    }
-  });
+  await consumeStream(
+    response.body,
+    (line) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return;
+      const data = trimmed.slice(5).trim();
+      if (!data || data === '[DONE]') return;
+      try {
+        const parsed = JSON.parse(data);
+        const content = parsed.choices?.[0]?.delta?.content;
+        if (content) onDelta(content);
+      } catch {
+        // Ignorar fragmentos no parseables
+      }
+    },
+    30_000,
+    controller.signal,
+  );
 }
 
 /** Ollama `/api/chat` (NDJSON, un objeto JSON por línea). */
 async function streamFromOllama(messages: unknown, onDelta: DeltaHandler): Promise<void> {
-  const response = await fetch(`${OLLAMA_HOST}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: OLLAMA_MODEL, messages, stream: true }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+  let response: Awaited<ReturnType<typeof fetch>>;
+  try {
+    response = await fetch(`${OLLAMA_HOST}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: OLLAMA_MODEL, messages, stream: true }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw err instanceof Error && err.name === 'AbortError'
+      ? new Error(`Ollama timeout tras ${OLLAMA_TIMEOUT_MS}ms`)
+      : err;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
     throw new Error(`Error de Ollama (${response.status}): ${errText || response.statusText}`);
   }
-  await consumeStream(response.body, (line) => {
-    if (!line.trim()) return;
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed.message?.content) onDelta(parsed.message.content);
-    } catch {
-      // Ignorar líneas no parseables
-    }
-  });
+  await consumeStream(
+    response.body,
+    (line) => {
+      if (!line.trim()) return;
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.message?.content) onDelta(parsed.message.content);
+      } catch {
+        // Ignorar líneas no parseables
+      }
+    },
+    30_000,
+    controller.signal,
+  );
 }
 router.post('/stream', async (req: Request, res: Response) => {
   try {

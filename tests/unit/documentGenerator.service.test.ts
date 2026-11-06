@@ -38,7 +38,10 @@ describe('htmlToPdf', () => {
     expect(result).toBeInstanceOf(Buffer);
     expect(result).toEqual(Buffer.from([37, 80, 68, 70]));
     expect(puppeteer.launch).toHaveBeenCalledWith({ headless: true });
-    expect(page.setContent).toHaveBeenCalledWith('<h1>Acta</h1>', { waitUntil: 'load' });
+    expect(page.setContent).toHaveBeenCalledWith('<h1>Acta</h1>', {
+      waitUntil: 'load',
+      timeout: expect.any(Number),
+    });
     expect(page.pdf).toHaveBeenCalledWith({
       format: 'A4',
       margin: {
