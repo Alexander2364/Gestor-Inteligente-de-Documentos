@@ -29,13 +29,11 @@ export interface ScannedDocument {
 }
 
 /**
- * Tope de tokens para el flujo de cámara: acota la salida del modelo (Ollama
- * `num_predict` / Gemini `maxOutputTokens`) para que no divague hasta agotar el
- * timeout en hardware sin GPU.
+ * Tope de tokens para el flujo de cámara: acota la salida del modelo
+ * (Gemini `maxOutputTokens`) para que no divague hasta agotar el timeout en
+ * hardware sin GPU.
  */
-const MOBILE_MAX_PREDICT = Number(
-  process.env.IA_MOBILE_MAX_TOKENS ?? process.env.OLLAMA_MOBILE_MAX_PREDICT ?? 768,
-);
+const MOBILE_MAX_PREDICT = Number(process.env.IA_MOBILE_MAX_TOKENS ?? 768);
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Error desconocido';
