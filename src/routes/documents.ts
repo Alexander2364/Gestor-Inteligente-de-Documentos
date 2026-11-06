@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getSupabaseClient } from '../config/supabase';
+import { getStorageBucket } from '../config/storage';
 import { buildStoredReport } from '../services/documentReadModel';
 
 const router = Router();
@@ -24,7 +25,7 @@ function decorateDocument(supabase: SupabaseClient, doc: any) {
   if (!storageUrl && doc.id) {
     const ext = doc.file_name?.split('.').pop() || 'pdf';
     const { data: urlData } = supabase.storage
-      .from('DocumentosIA')
+      .from(getStorageBucket())
       .getPublicUrl(`${doc.id}.${ext}`);
     storageUrl = urlData?.publicUrl || null;
   }
