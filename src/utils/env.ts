@@ -2,7 +2,7 @@
 //
 // El único proveedor de IA remoto es Gemini (Google AI Studio). El clasificador
 // local por palabras clave (`classifyByKeywords`) es siempre el último recurso,
-// así que la app nunca se queda sin clasificar y NUNCA requiere Ollama.
+// así que la app nunca se queda sin clasificar y no requiere infraestructura de IA local.
 
 const GEMINI_REQUIRED_VARS = ['GEMINI_API_KEY'] as const;
 
