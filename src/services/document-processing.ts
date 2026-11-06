@@ -79,12 +79,22 @@ async function uploadToStorage(
 export async function notifyN8n(payload: Record<string, any>): Promise<void> {
   const n8nWebhookUrl =
     process.env.N8N_WEBHOOK_URL || 'http://n8n:5678/webhook/documento-analizado';
+  const n8nWebhookToken = process.env.N8N_WEBHOOK_TOKEN;
   try {
     const res = await fetch(n8nWebhookUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(n8nWebhookToken ? { 'X-Webhook-Token': n8nWebhookToken } : {}),
+      },
       body: JSON.stringify(payload),
     });
+    if (!res.ok) {
+      console.warn(
+        `[n8n Webhook] n8n respondió ${res.status} en ${n8nWebhookUrl}. Continuará por Supabase polling.`,
+      );
+      return;
+    }
     console.log(
       `[n8n Webhook] Notificación enviada exitosamente a ${n8nWebhookUrl} (Status: ${res.status})`,
     );
