@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getSupabaseClient } from '../config/supabase';
 import { getStorageBucket } from '../config/storage';
 import { extractText, SupportedMimeType } from '../services/extractor';
+import { wantsDocumentList } from '../services/chatIntent';
 import {
   GEMINI_API_BASE,
   GEMINI_API_KEY,
@@ -308,7 +309,7 @@ async function streamFromGemini(messages: unknown, onDelta: DeltaHandler): Promi
 
 router.post('/stream', async (req: Request, res: Response) => {
   try {
-    const { message, history } = req.body;
+    const { message, history, includeDocuments } = req.body;
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'El mensaje es obligatorio' });
@@ -326,16 +327,20 @@ router.post('/stream', async (req: Request, res: Response) => {
     // 1. RAG: Buscar documentos relevantes en Supabase y el bucket
     const relevantDocs = await searchRelevantDocuments(message);
 
-    // 2. Construir tarjetas de documentos para el frontend
-    const toolResults = relevantDocs.map((doc) => ({
-      nombre: doc.file_name,
-      tipoDocumento: doc.document_analysis?.document_category || 'DOCUMENTO_SUNAT',
-      area: doc.document_derivations?.target_area || 'Área Administrativa',
-      descargaUrl: resolveStorageUrl(supabase, doc.id, doc.file_name, doc.storage_url),
-    }));
+    // 2. Tarjetas de documentos: solo si el usuario pidió verlos explícitamente.
+    // Los documentos siguen usándose como contexto, pero no se inyectan en cada
+    // respuesta (antes cualquier consulta mostraba el historial de archivos).
+    const showDocuments = wantsDocumentList(message, includeDocuments);
 
-    // Enviar evento 'tool_results' al frontend (compatible con la vista de Chatbot.jsx)
-    if (toolResults.length > 0) {
+    if (showDocuments && relevantDocs.length > 0) {
+      const toolResults = relevantDocs.map((doc) => ({
+        nombre: doc.file_name,
+        tipoDocumento: doc.document_analysis?.document_category || 'DOCUMENTO_SUNAT',
+        area: doc.document_derivations?.target_area || 'Área Administrativa',
+        descargaUrl: resolveStorageUrl(supabase, doc.id, doc.file_name, doc.storage_url),
+      }));
+
+      // Evento 'tool_results' compatible con la vista de Chatbot.jsx.
       res.write(
         `data: ${JSON.stringify({
           type: 'tool_results',
