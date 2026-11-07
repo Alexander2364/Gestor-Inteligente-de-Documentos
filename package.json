@@ -12,6 +12,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "worker": "tsx src/workers/document.worker.ts",
     "prepare": "husky || exit 0"
@@ -43,6 +44,7 @@
     "@types/node": "^20.14.0",
     "@types/pdf-parse": "^1.1.4",
     "@types/supertest": "^6.0.2",
+    "@vitest/coverage-v8": "^1.6.1",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^9.1.2",
     "globals": "^15.15.0",
