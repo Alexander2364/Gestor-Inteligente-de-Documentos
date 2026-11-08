@@ -5,6 +5,7 @@ import documentsRouter from './routes/documents';
 import chatRouter from './routes/chat';
 import templatesRouter from './routes/templates.routes';
 import documentGenerationRouter from './routes/documents.routes';
+import { sentryErrorHandler } from './config/sentry';
 
 /**
  * Express aplica un timeout de socket de 2 minutos por defecto
@@ -75,6 +76,9 @@ export function createApp() {
     console.error('Unhandled error:', err);
     res.status(500).json({ error: 'Error interno del servidor' });
   });
+
+  // Sentry captura los errores no gestionados por el manejador anterior.
+  app.use(sentryErrorHandler);
 
   return app;
 }
