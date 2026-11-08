@@ -36,6 +36,96 @@ function resolveStorageUrl(
   return data.publicUrl;
 }
 
+/**
+ * Detecta si el usuario pide explícitamente el último documento subido.
+ * Frases reconocidas: "último documento", "último archivo", "documento más
+ * reciente", "háblame del último documento", "dame el último documento",
+ * "cuál es el último documento", etc.
+ */
+function wantsLastDocument(message: string): boolean {
+  const normalized = normalize(message);
+  const patrones = [
+    'último documento',
+    'ultimo documento',
+    'último archivo',
+    'ultimo archivo',
+    'documento más reciente',
+    'documento mas reciente',
+    'último registro',
+    'ultimo registro',
+    'háblame del último',
+    'hablame del último',
+    'háblame del ultimo',
+    'hablame del ultimo',
+    'dame el último',
+    'dame el ultimo',
+    'cuál es el último',
+    'cual es el ultimo',
+  ];
+  return patrones.some((p) => normalized.includes(p));
+}
+
+/**
+ * Obtiene el documento más reciente de Supabase con su análisis y derivación.
+ * Devuelve null si no hay documentos.
+ */
+async function getLastDocument(
+  supabase: ReturnType<typeof getSupabaseClient>,
+): Promise<EnrichedDoc | null> {
+  try {
+    const { data: rawDocs, error } = await supabase
+      .from('documents')
+      .select(
+        `
+        id,
+        file_name,
+        storage_url,
+        upload_date,
+        processing_status,
+        document_analysis (
+          document_category,
+          confidence_percentage,
+          ai_summary
+        ),
+        extracted_metadata (
+          field_name,
+          field_value
+        ),
+        document_derivations (
+          target_area,
+          derivation_reason
+        )
+      `,
+      )
+      .order('upload_date', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error || !rawDocs) {
+      console.warn('[Último documento] No se encontró documento:', error?.message);
+      return null;
+    }
+
+    const doc: EnrichedDoc = {
+      ...rawDocs,
+      document_analysis: Array.isArray(rawDocs.document_analysis)
+        ? rawDocs.document_analysis[0]
+        : rawDocs.document_analysis,
+      document_derivations: Array.isArray(rawDocs.document_derivations)
+        ? rawDocs.document_derivations[0]
+        : rawDocs.document_derivations,
+      extracted_metadata: Array.isArray(rawDocs.extracted_metadata)
+        ? rawDocs.extracted_metadata
+        : [],
+    };
+
+    return doc;
+  } catch (err) {
+    console.warn('[Último documento] Error:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // Interfaz para documentos enriquecidos
 interface EnrichedDoc {
   id: string;
@@ -331,6 +421,54 @@ router.post('/stream', async (req: Request, res: Response) => {
     // Los documentos siguen usándose como contexto, pero no se inyectan en cada
     // respuesta (antes cualquier consulta mostraba el historial de archivos).
     const showDocuments = wantsDocumentList(message, includeDocuments);
+
+    // 2.1. Último documento: respuesta estructurada cuando el usuario lo pide explícitamente.
+    if (wantsLastDocument(message)) {
+      const lastDoc = await getLastDocument(supabase);
+      if (lastDoc) {
+        const descargaUrl = resolveStorageUrl(
+          supabase,
+          lastDoc.id,
+          lastDoc.file_name,
+          lastDoc.storage_url,
+        );
+        const tipoDocumento = lastDoc.document_analysis?.document_category || 'DOCUMENTO_SUNAT';
+        const area = lastDoc.document_derivations?.target_area || 'Área Administrativa';
+        const resumenEjecutivo =
+          lastDoc.document_analysis?.ai_summary ||
+          lastDoc.extracted_metadata?.[0]?.field_value ||
+          'Sin resumen ejecutivo disponible.';
+
+        // Evento estructurado para el frontend (tarjeta con descarga).
+        res.write(
+          `data: ${JSON.stringify({
+            type: 'ultimo_documento',
+            documento: {
+              nombre: lastDoc.file_name,
+              tipoDocumento,
+              area,
+              descargaUrl,
+              resumenEjecutivo,
+            },
+          })}\n\n`,
+        );
+
+        // Texto estructurado tal como se solicita.
+        res.write(
+          `data: ${JSON.stringify({
+            type: 'content',
+            content: `el ultimo documento es : ${lastDoc.file_name} . este documento trata de : ${tipoDocumento} . como resumen ejectivo : ${resumenEjecutivo} . tienes algun problema o duda?`,
+          })}\n\n`,
+        );
+      } else {
+        res.write(
+          `data: ${JSON.stringify({
+            type: 'content',
+            content: 'No hay documentos registrados en el sistema.',
+          })}\n\n`,
+        );
+      }
+    }
 
     if (showDocuments && relevantDocs.length > 0) {
       const toolResults = relevantDocs.map((doc) => ({
