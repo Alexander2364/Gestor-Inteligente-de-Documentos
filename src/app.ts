@@ -5,6 +5,7 @@ import documentsRouter from './routes/documents';
 import chatRouter from './routes/chat';
 import templatesRouter from './routes/templates.routes';
 import documentGenerationRouter from './routes/documents.routes';
+import { createQueueDashboardRouter } from './queues/dashboard';
 
 /**
  * Express aplica un timeout de socket de 2 minutos por defecto
@@ -75,6 +76,12 @@ export function createApp() {
     console.error('Unhandled error:', err);
     res.status(500).json({ error: 'Error interno del servidor' });
   });
+
+  // Panel de BullMQ (bull-board): solo si está habilitado.
+  if (process.env.QUEUE_DASHBOARD_ENABLED === 'true') {
+    const basePath = process.env.QUEUE_DASHBOARD_BASE_PATH ?? '/admin/queues';
+    app.use(basePath, createQueueDashboardRouter());
+  }
 
   return app;
 }
