@@ -5,7 +5,7 @@ import documentsRouter from './routes/documents';
 import chatRouter from './routes/chat';
 import templatesRouter from './routes/templates.routes';
 import documentGenerationRouter from './routes/documents.routes';
-import { sentryErrorHandler } from './config/sentry';
+import { createQueueDashboardRouter } from './queues/dashboard';
 
 /**
  * Express aplica un timeout de socket de 2 minutos por defecto
@@ -77,8 +77,11 @@ export function createApp() {
     res.status(500).json({ error: 'Error interno del servidor' });
   });
 
-  // Sentry captura los errores no gestionados por el manejador anterior.
-  app.use(sentryErrorHandler);
+  // Panel de BullMQ (bull-board): solo si está habilitado.
+  if (process.env.QUEUE_DASHBOARD_ENABLED === 'true') {
+    const basePath = process.env.QUEUE_DASHBOARD_BASE_PATH ?? '/admin/queues';
+    app.use(basePath, createQueueDashboardRouter());
+  }
 
   return app;
 }

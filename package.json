@@ -20,7 +20,8 @@
   "keywords": [],
   "type": "commonjs",
   "dependencies": {
-    "@sentry/node": "^8.55.2",
+    "@bull-board/api": "^9.11.0",
+    "@bull-board/express": "^9.11.0",
     "@supabase/supabase-js": "^2.45.0",
     "bullmq": "^5.8.0",
     "cheerio": "^1.2.0",
